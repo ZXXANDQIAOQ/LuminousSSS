@@ -94,6 +94,16 @@ const hash2 = (x, y) => {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 };
 
+/* ---------------- 本地存档（WebView / 隐私模式下可能不可用，做兜底） ---------------- */
+const Store = {
+  get(key, fallback) {
+    try { return localStorage.getItem(key) ?? fallback; } catch (e) { return fallback; }
+  },
+  set(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) { /* 忽略：无痕模式或沙箱限制 */ }
+  },
+};
+
 /* ---------------- 地图 ---------------- */
 /* 每层一格存放 {c,r} 或 null；solid 为布尔矩阵 */
 const GameMap = {
@@ -478,11 +488,11 @@ async function main() {
   // 登录逻辑
   const loginEl = document.getElementById('login');
   const inputEl = document.getElementById('nickname');
-  inputEl.value = localStorage.getItem('luminous_name') || '';
+  inputEl.value = Store.get('luminous_name', '');
   document.getElementById('btnStart').addEventListener('click', () => {
     const name = inputEl.value.trim() || '无名旅人';
     Player.name = name;
-    localStorage.setItem('luminous_name', name);
+    Store.set('luminous_name', name);
     Player.spawn();
     Camera.follow(Player);
     loginEl.classList.add('hidden');

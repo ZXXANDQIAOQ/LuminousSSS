@@ -6,6 +6,8 @@
 
 ## 运行
 
+### 网页版
+
 纯静态页面，无构建步骤。任意静态服务器指向本目录即可：
 
 ```bash
@@ -14,6 +16,18 @@ python -m http.server 8080
 ```
 
 > 注意：需要通过 http(s) 访问，直接双击 index.html（file://）会导致图片/音频加载失败。
+
+### Android 版
+
+游戏本体同一套代码，`android/` 是 WebView 壳 + 离线打包脚本（不需要 Gradle / 联网）：
+
+```bash
+python android/build_apk.py     # → dist/LuminousSSS-v0.1.apk
+D:\App\Android\Sdk\platform-tools\adb.exe install -r dist/LuminousSSS-v0.1.apk
+```
+
+横屏全屏、刘海屏铺满、不息屏、支持虚拟摇杆；包名 `com.zxxandqiaoqiao.luminoussss`，
+minSdk 21 / targetSdk 34。细节见 [android/README.md](android/README.md)。
 
 ## 操作
 
@@ -32,7 +46,9 @@ assets/
   tiles/            Kenney Tiny Town 图集（CC0）
   audio/            BGM（OpenGameArt，CC0）
   fonts/            Press Start 2P 像素字体（OFL）
+android/            Android WebView 壳 + 离线打包脚本（build_apk.py）
 tools/smoke-test.js 无头浏览器冒烟测试（playwright-core + 系统 Edge）
+dist/               打包产物（APK）
 ```
 
 ## 自测
@@ -60,6 +76,7 @@ node tools/smoke-test.js
 
 - [x] 登录界面
 - [x] 主场景：荒地 + 小屋 + 自由移动
+- [x] Android 版本（WebView 壳 + 离线打包脚本）
 - [ ] 经营玩法（待规划）
 - [ ] 小游戏战斗（待规划）
 - [ ] 多主角支持（主角 sprite 已预留 hero_0~4 多姿势）
