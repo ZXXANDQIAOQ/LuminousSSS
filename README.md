@@ -17,17 +17,27 @@ python -m http.server 8080
 
 > 注意：需要通过 http(s) 访问，直接双击 index.html（file://）会导致图片/音频加载失败。
 
-### Android 版
+### Android 版（两条路线，二选一或都留）
 
-游戏本体同一套代码，`android/` 是 WebView 壳 + 离线打包脚本（不需要 Gradle / 联网）：
+**路线 A：WebView 壳**（`android/`）——网页本体复用，不用 Gradle、不用联网：
 
 ```bash
 python android/build_apk.py     # → dist/LuminousSSS-v0.1.apk
 D:\App\Android\Sdk\platform-tools\adb.exe install -r dist/LuminousSSS-v0.1.apk
 ```
 
-横屏全屏、刘海屏铺满、不息屏、支持虚拟摇杆；包名 `com.zxxandqiaoqiao.luminoussss`，
-minSdk 21 / targetSdk 34。细节见 [android/README.md](android/README.md)。
+**路线 B：团结引擎工程**（`tuanjie/`）——用 Tuanjie 2022.3.62t16 重做的原生版：
+
+```bash
+# 双击 tuanjie\Tools\build-apk.cmd（初始化工程 + 打 APK 一次跑完）
+D:\App\Android\Sdk\platform-tools\adb.exe install -r tuanjie\Build\Android\LuminousSSS-tuanjie.apk
+```
+
+或在编辑器里：打开工程 → 菜单 `Luminous → 一键初始化工程` → `Luminous → 打包 Android APK`。
+细节与已知限制见 [tuanjie/README.md](tuanjie/README.md)。
+
+两条路线包名一致（`com.zxxandqiaoqiao.luminoussss`），所以**同一台手机只能装一个**，
+换着装之前先卸载另一个。
 
 ## 操作
 
@@ -47,6 +57,7 @@ assets/
   audio/            BGM（OpenGameArt，CC0）
   fonts/            Press Start 2P 像素字体（OFL）
 android/            Android WebView 壳 + 离线打包脚本（build_apk.py）
+tuanjie/            团结引擎工程（Tuanjie 2022.3.62t16 原生版）
 tools/smoke-test.js 无头浏览器冒烟测试（playwright-core + 系统 Edge）
 dist/               打包产物（APK）
 ```
@@ -77,6 +88,7 @@ node tools/smoke-test.js
 - [x] 登录界面
 - [x] 主场景：荒地 + 小屋 + 自由移动
 - [x] Android 版本（WebView 壳 + 离线打包脚本）
+- [x] 团结引擎工程（Tuanjie 原生 Android 版）
 - [ ] 经营玩法（待规划）
 - [ ] 小游戏战斗（待规划）
 - [ ] 多主角支持（主角 sprite 已预留 hero_0~4 多姿势）
