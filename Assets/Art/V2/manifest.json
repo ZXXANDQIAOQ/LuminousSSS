@@ -1,0 +1,12 @@
+{
+  "tiles": {
+    "total_cells": 128,
+    "unique": 128,
+    "duplicates": 0
+  },
+  "nature": 13,
+  "buildings": 9,
+  "items": 15,
+  "ui": 16,
+  "walk_frames": 24
+}
