@@ -6,7 +6,8 @@ namespace LuminousSSS
 {
     /// <summary>
     /// 登录 / 角色选择界面控制器。
-    /// 交互：◀ ▶ 切换角色（立绘与名称联动）；「开始游戏」写入 PlayerPrefs 并跳转农场场景；「设置」预留。
+    /// 交互：◀ ▶ 切换角色（待机预览与名称联动）；「开始游戏」写入 PlayerPrefs 并跳转农场场景；
+    /// 「设置」打开设置弹窗（音乐 / 音效开关）。
     /// </summary>
     public class CharacterSelector : MonoBehaviour
     {
@@ -15,11 +16,15 @@ namespace LuminousSSS
 
         [Header("界面引用")]
         public Image portraitImage;
+        public CharacterPreview preview;
         public Text nameLabel;
         public Button prevButton;
         public Button nextButton;
         public Button startButton;
         public Button settingsButton;
+
+        [Header("设置弹窗")]
+        public SettingsPanel settingsPanel;
 
         [Header("跳转")]
         public string nextSceneName = GameData.SceneFarm;
@@ -41,7 +46,7 @@ namespace LuminousSSS
             if (prevButton != null) prevButton.onClick.AddListener(Prev);
             if (nextButton != null) nextButton.onClick.AddListener(Next);
             if (startButton != null) startButton.onClick.AddListener(StartGame);
-            if (settingsButton != null) settingsButton.onClick.AddListener(OnSettings);
+            if (settingsButton != null) settingsButton.onClick.AddListener(OpenSettings);
 
             // 恢复了上次选择的话，直接定位过去
             string saved = GameData.SelectedCharacterId;
@@ -53,8 +58,8 @@ namespace LuminousSSS
             Refresh();
         }
 
-        public void Next() => Move(1);
-        public void Prev() => Move(-1);
+        public void Next() { AudioManager.Click(); Move(1); }
+        public void Prev() { AudioManager.Click(); Move(-1); }
 
         private void Move(int delta)
         {
@@ -67,10 +72,20 @@ namespace LuminousSSS
         {
             var c = Current;
             if (c == null) return;
-            if (portraitImage != null)
+
+            // 待机预览：有多帧 idle 动画就轮播（女巫），否则单张立绘 + 浮动
+            Sprite[] frames = (c.idleFrames != null && c.idleFrames.Length > 0)
+                ? c.idleFrames
+                : (c.portrait != null ? new[] { c.portrait } : null);
+
+            if (preview != null)
             {
-                portraitImage.sprite = c.portrait;
-                portraitImage.enabled = c.portrait != null;
+                preview.SetFrames(frames);
+            }
+            else if (portraitImage != null)
+            {
+                portraitImage.sprite = frames != null ? frames[0] : null;
+                portraitImage.enabled = frames != null;
                 portraitImage.preserveAspect = true;
             }
             if (nameLabel != null) nameLabel.text = c.displayName;
@@ -80,15 +95,16 @@ namespace LuminousSSS
         {
             var c = Current;
             if (c == null) return;
+            AudioManager.Confirm();
             GameData.SelectedCharacterId = c.id;
             Debug.Log($"[LuminousSSS] 选择角色 {c.id} {c.displayName}，进入 {nextSceneName}");
             if (!string.IsNullOrEmpty(nextSceneName)) SceneManager.LoadScene(nextSceneName);
         }
 
-        private void OnSettings()
+        private void OpenSettings()
         {
-            // 设计文档 3.4：设置暂未实现，预留入口
-            Debug.Log("[LuminousSSS] 设置界面尚未实现（设计文档 3.4）。");
+            AudioManager.Click();
+            if (settingsPanel != null) settingsPanel.Open();
         }
     }
 }

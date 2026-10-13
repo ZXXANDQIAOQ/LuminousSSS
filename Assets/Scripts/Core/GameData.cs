@@ -38,7 +38,7 @@ namespace LuminousSSS
         }
     }
 
-    /// <summary>一个可选角色的完整信息（立绘 + 场景内小人）。</summary>
+    /// <summary>一个可选角色的完整信息（立绘 + 场景内小人 + 待机动画帧）。</summary>
     [System.Serializable]
     public class CharacterInfo
     {
@@ -46,5 +46,6 @@ namespace LuminousSSS
         public string displayName = "无名";
         public Sprite portrait;      // 登录界面立绘
         public Sprite worldSprite;   // 场景内的小像素人
+        public Sprite[] idleFrames;  // 待机动画帧（多帧则轮播；为空则立绘 + 浮动）
     }
 }
