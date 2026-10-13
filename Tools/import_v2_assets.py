@@ -472,14 +472,45 @@ def run(src, root, preview_dir=None):
     return log, manifest
 
 
+def retile_opaque(sheet_jpg, root):
+    """
+    瓦片专用重切：瓦片是「地面」，本身就该全不透明。
+    首版流程对瓦片也做了黑底抠图，暗色像素（如泥土边缘）被误判成背景，
+    导致部分瓦片边缘半透明、平铺时露缝。这里直接从原始 jpg 重切，
+    不做抠图（alpha=255），等比缩放到 64x64 后覆盖 Tiles/。
+    """
+    im = load_rgb(sheet_jpg)
+    cols, rows = 16, 8
+    cw, ch = im.width / cols, im.height / rows
+    tile_dir = os.path.join(root, "Assets/Art/V2", "Tiles")
+    os.makedirs(tile_dir, exist_ok=True)
+    n = 0
+    for r in range(rows):
+        for c in range(cols):
+            box = (int(round(c * cw)), int(round(r * ch)),
+                   int(round((c + 1) * cw)), int(round((r + 1) * ch)))
+            cell = im.crop(box).convert("RGBA")          # 不透明
+            cell = cell.resize((64, 64), Image.LANCZOS)
+            cell.save(os.path.join(tile_dir, f"tile_r{r+1:02d}c{c+1:02d}.png"))
+            n += 1
+    return f"Retile: {n} 张瓦片已按全不透明重切 -> {tile_dir}"
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="LuminousSSS v0.2 素材导入")
-    ap.add_argument("--src", required=True,
+    ap.add_argument("--src",
                     help="下载的素材目录（14 个 jpg，文件名见 Docs/素材导入说明 v0.2.md）")
+    ap.add_argument("--retile", default=None, metavar="SHEET_JPG",
+                    help="只重切瓦片：给定 tile001 原图 jpg，全不透明覆盖 Tiles/（不跑完整流程）")
     ap.add_argument("--root", default=None, help="工程根目录（默认取脚本上级）")
     ap.add_argument("--preview", default=None, help="预览图输出目录")
     a = ap.parse_args()
     _root = a.root or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    _log, _man = run(a.src, _root, a.preview)
-    print("\n".join(_log))
-    print("\n" + json.dumps(_man, ensure_ascii=False, indent=2))
+    if a.retile:
+        print(retile_opaque(a.retile, _root))
+    elif a.src:
+        _log, _man = run(a.src, _root, a.preview)
+        print("\n".join(_log))
+        print("\n" + json.dumps(_man, ensure_ascii=False, indent=2))
+    else:
+        ap.error("需要 --src（完整导入）或 --retile（只重切瓦片）")

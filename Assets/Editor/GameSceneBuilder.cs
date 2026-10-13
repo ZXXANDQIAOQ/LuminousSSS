@@ -30,9 +30,10 @@ namespace LuminousSSS.EditorTools
         const int MapW = 40;
         const int MapH = 24;
         const int WallRows = 2;              // 顶部石墙占两行
-        static readonly RectInt DirtRect = new RectInt(6, 5, 20, 11);   // 中央土黄空地
-        const int PathLeft = 28;             // 土路两列
+        static readonly RectInt DirtRect = new RectInt(6, 4, 22, 12);  // 中央土黄空地（x 6..27, y 4..15）
+        const int PathLeft = 29;             // 土路两列（木屋门口 -> 底部出口）
         const int PathTop = 14;
+        const float HouseDoorX = 30f;        // 木屋门（底部中心）的世界 x
 
         static Sprite S(string rel) => AssetDatabase.LoadAssetAtPath<Sprite>(Art + rel);
         static T A<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(path);
@@ -59,8 +60,8 @@ namespace LuminousSSS.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
-            EditorSceneManager.OpenScene(ScenesDir + "/LoginScene.unity");
-            Debug.Log("[LuminousSSS] 场景生成完成：Assets/Scenes/LoginScene.unity 与 FarmScene.unity（已为你打开 LoginScene，直接点播放即可）。");
+            EditorSceneManager.OpenScene(ScenesDir + "/LoginScene.scene");
+            Debug.Log("[LuminousSSS] 场景生成完成：Assets/Scenes/LoginScene.scene 与 FarmScene.scene（已为你打开 LoginScene，直接点播放即可）。");
         }
 
         static void EnsureFolders()
@@ -81,6 +82,16 @@ namespace LuminousSSS.EditorTools
             MakeTile("tile_dirt", Art + "Tiles/tile_dirt.png");
             MakeTile("tile_path", Art + "Tiles/tile_path.png");
             MakeTile("tile_stonewall", Art + "Tiles/tile_stonewall.png");
+
+            // V2 素材（64px / PPU 64，1 tile = 1 世界单位）
+            // fill_* 是 Tools/gen_fill_tiles.py 用镜像四拼做的无缝填充块
+            // （素材集原格自带描边/苗行，直接平铺会有接缝，详见该脚本注释）
+            MakeTile("v2_grass_a", Art + "V2/Tiles/fill_grass_a.png"); // 草地填充
+            MakeTile("v2_grass_b", Art + "V2/Tiles/fill_grass_b.png"); // 草地填充（变体）
+            MakeTile("v2_dirt_a", Art + "V2/Tiles/fill_dirt_a.png");   // 土块填充
+            MakeTile("v2_dirt_b", Art + "V2/Tiles/fill_dirt_b.png");   // 土块填充（变体）
+            MakeTile("v2_sand", Art + "V2/Tiles/fill_sand.png");       // 浅沙土（土路）
+            MakeTile("v2_cobble", Art + "V2/Tiles/tile_r06c05.png");   // 鹅卵石（石墙）
         }
 
         static Tile MakeTile(string name, string spritePath)
@@ -287,7 +298,7 @@ namespace LuminousSSS.EditorTools
             };
 
             EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene, ScenesDir + "/LoginScene.unity");
+            EditorSceneManager.SaveScene(scene, ScenesDir + "/LoginScene.scene");
         }
 
         // ------------------------------------------------------------ 设置弹窗
@@ -346,6 +357,9 @@ namespace LuminousSSS.EditorTools
             };
 
         // ------------------------------------------------------------ 农场场景
+        // 用 V2 素材按参考图（Docs/Refs/v2/scene_01_farm.jpg）布局：
+        // 右上红顶木屋、中央土黄空地、左侧阔叶树+石头+树桩、右侧松树、
+        // 顶部石墙+灌木、土路从木屋门口拐向底部出口。
         static void BuildFarmScene()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -369,87 +383,97 @@ namespace LuminousSSS.EditorTools
             var tmr = tmGO.GetComponent<TilemapRenderer>();
             tmr.sortingOrder = -100;
 
-            var grass = A<Tile>(TilesDir + "/tile_grass.asset");
-            var dirt = A<Tile>(TilesDir + "/tile_dirt.asset");
-            var path = A<Tile>(TilesDir + "/tile_path.asset");
-            var wall = A<Tile>(TilesDir + "/tile_stonewall.asset");
+            var grassA = A<Tile>(TilesDir + "/v2_grass_a.asset");
+            var grassB = A<Tile>(TilesDir + "/v2_grass_b.asset");
+            var dirtA = A<Tile>(TilesDir + "/v2_dirt_a.asset");
+            var dirtB = A<Tile>(TilesDir + "/v2_dirt_b.asset");
+            var sand = A<Tile>(TilesDir + "/v2_sand.asset");
+            var cobble = A<Tile>(TilesDir + "/v2_cobble.asset");
 
-            // 草铺满（多铺一圈，避免相机贴边看到空）
+            // 草地铺满（多铺一圈防穿帮），两种无缝填充块按坐标哈希混铺
             for (int x = -3; x < MapW + 3; x++)
                 for (int y = -3; y < MapH + 3; y++)
-                    tm.SetTile(new Vector3Int(x, y, 0), grass);
+                {
+                    int h = Mathf.Abs(x * 73856093 ^ y * 19349663) % 100;
+                    tm.SetTile(new Vector3Int(x, y, 0), h < 62 ? grassA : grassB);
+                }
 
-            // 中央土黄空地
+            // 中央土黄空地（纯土块，两种交替防重复感）
             for (int x = DirtRect.xMin; x < DirtRect.xMax; x++)
                 for (int y = DirtRect.yMin; y < DirtRect.yMax; y++)
-                    tm.SetTile(new Vector3Int(x, y, 0), dirt);
+                    tm.SetTile(new Vector3Int(x, y, 0), ((x + y) & 1) == 0 ? dirtA : dirtB);
 
-            // 土路：木屋门口 -> 底部出口
+            // 土路（浅沙土）：木屋门口 -> 底部出口
             for (int y = 0; y <= PathTop; y++)
             {
-                tm.SetTile(new Vector3Int(PathLeft, y, 0), path);
-                tm.SetTile(new Vector3Int(PathLeft + 1, y, 0), path);
+                tm.SetTile(new Vector3Int(PathLeft, y, 0), sand);
+                tm.SetTile(new Vector3Int(PathLeft + 1, y, 0), sand);
             }
-            for (int x = PathLeft - 2; x < PathLeft; x++)
-                tm.SetTile(new Vector3Int(x, PathTop, 0), path);
 
-            // 顶部石墙
-            for (int x = 0; x < MapW; x++)
+            // 顶部石墙（鹅卵石，两行）
+            for (int x = -3; x < MapW + 3; x++)
                 for (int r = 0; r < WallRows; r++)
-                    tm.SetTile(new Vector3Int(x, MapH - 1 - r, 0), wall);
+                    tm.SetTile(new Vector3Int(x, MapH - 1 - r, 0), cobble);
 
-            // ---- 物件
+            // ---- 物件（collider 给出底部碰撞盒的宽 x 高；无则纯装饰）
             var props = new GameObject("Props").transform;
 
-            // 木屋（右上，底部落在 y=14）
-            PlaceProp(props, "Buildings/building_house.png", 30f, 14f, 0);
+            // 红顶木屋（右上，底部中心即门口，对准土路顶端）
+            PlaceProp(props, "V2/Buildings/v2_building_house_main.png", HouseDoorX, 14f, new Vector2(7.6f, 1.6f));
 
-            // 顶部灌木带
-            foreach (float bx in new[] { 8f, 11f, 14f, 17f, 20f, 36f })
-                PlaceProp(props, "Props/prop_bush.png", bx, MapH - WallRows - 0.4f, 0);
+            // 木屋旁：木箱 + 木桶
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 24.4f, 14.5f, new Vector2(1.1f, 1.0f));
+            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 25.3f, 13.2f, new Vector2(1.1f, 1.0f));
+
+            // 顶部石墙前的灌木带
+            foreach (float bx in new[] { 4f, 8f, 12f, 16f, 20f, 24f, 36f })
+                PlaceProp(props, "V2/Nature/v2_nature_bush.png", bx, MapH - WallRows - 0.5f, new Vector2(1.6f, 0.9f));
 
             // 左侧：阔叶树 / 石头 / 树桩
+            foreach (var p in new[] { (2.0f, 6.0f), (2.4f, 10.5f), (3.0f, 15.5f), (1.8f, 19.2f) })
+                PlaceProp(props, "V2/Nature/v2_nature_tree_broadleaf.png", p.Item1, p.Item2, new Vector2(1.0f, 0.8f));
+            PlaceProp(props, "V2/Nature/v2_nature_rock.png", 3.6f, 8.4f, new Vector2(1.5f, 0.9f));
+            PlaceProp(props, "V2/Nature/v2_nature_rock.png", 3.0f, 12.8f, new Vector2(1.5f, 0.9f));
+            PlaceProp(props, "V2/Nature/v2_nature_stump.png", 5.0f, 10.0f, new Vector2(1.5f, 0.8f));
+            PlaceProp(props, "V2/Nature/v2_nature_stump.png", 4.4f, 18.0f, new Vector2(1.5f, 0.8f));
+
+            // 右侧：松树
+            foreach (var p in new[] { (37.2f, 5.0f), (37.8f, 11.0f), (37.2f, 17.5f) })
+                PlaceProp(props, "V2/Nature/v2_nature_tree_pine.png", p.Item1, p.Item2, new Vector2(0.9f, 0.7f));
+
+            // 底部：木头 / 石头 / 树桩
+            PlaceProp(props, "V2/Nature/v2_nature_log.png", 9.0f, 2.4f, new Vector2(1.5f, 0.6f));
+            PlaceProp(props, "V2/Nature/v2_nature_rock.png", 13.6f, 2.6f, new Vector2(1.5f, 0.9f));
+            PlaceProp(props, "V2/Nature/v2_nature_stump.png", 17.0f, 2.4f, new Vector2(1.5f, 0.8f));
+            PlaceProp(props, "V2/Nature/v2_nature_rock.png", 21.5f, 2.8f, new Vector2(1.5f, 0.9f));
+            PlaceProp(props, "V2/Nature/v2_nature_stump.png", 24.5f, 2.5f, new Vector2(1.5f, 0.8f));
+
+            // 土路底部出口旁的木牌
+            PlaceProp(props, "V2/Nature/v2_nature_sign.png", 31.4f, 1.4f, new Vector2(0.7f, 0.6f));
+
+            // 纯装饰：草丛 + 野花（避开空地和土路）
             foreach (var p in new[] {
-                (1.2f, 5.5f), (1.8f, 9.5f), (3.2f, 16.0f), (1.4f, 19.5f)
-            }) PlaceProp(props, "Props/prop_tree_broadleaf.png", p.Item1, p.Item2, 0);
-
-            PlaceProp(props, "Props/prop_rock_small.png", 2.6f, 7.6f, 0);
-            PlaceProp(props, "Props/prop_rock_large.png", 2.2f, 12.4f, 0);
-            PlaceProp(props, "Props/prop_rock_large.png", 3.6f, 21.0f, 0);
-            PlaceProp(props, "Props/prop_stump.png", 4.8f, 9.8f, 0);
-            PlaceProp(props, "Props/prop_stump.png", 4.4f, 17.8f, 0);
-
-            // 右侧：松树 / 树桩
-            foreach (var p in new[] {
-                (37.0f, 4.0f), (37.6f, 10.5f), (37.0f, 17.5f)
-            }) PlaceProp(props, "Props/prop_tree_pine.png", p.Item1, p.Item2, 0);
-
-            PlaceProp(props, "Props/prop_stump.png", 35.6f, 9.4f, 0);
-            PlaceProp(props, "Props/prop_stump.png", 36.2f, 14.4f, 0);
-
-            // 底部：木头 / 石头 / 树桩 / 杂草
-            PlaceProp(props, "Props/prop_log.png", 9.0f, 2.2f, 0);
-            PlaceProp(props, "Props/prop_rock_small.png", 13.6f, 2.6f, 0);
-            PlaceProp(props, "Props/prop_stump.png", 16.6f, 2.2f, 0);
-            PlaceProp(props, "Props/prop_rock_small.png", 21.2f, 2.8f, 0);
-            PlaceProp(props, "Props/prop_stump.png", 23.6f, 2.4f, 0);
-            PlaceProp(props, "Props/prop_rock_large.png", 26.2f, 2.0f, 0);
-
-            foreach (var p in new[] {
-                (7.5f, 8.0f), (10.5f, 3.5f), (18.5f, 8.0f), (24.5f, 3.2f), (33.5f, 3.2f), (5.5f, 13.5f)
-            }) PlaceProp(props, "Props/prop_grass_tuft.png", p.Item1, p.Item2, 0);
+                (4.5f, 7.0f), (5.0f, 12.5f), (33.5f, 6.0f), (35.0f, 17.0f),
+                (10.0f, 2.2f), (20.0f, 2.6f), (31.5f, 8.5f), (36.5f, 3.5f) })
+                PlaceProp(props, "V2/Nature/v2_nature_grass_tuft.png", p.Item1, p.Item2, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_pink.png", 4.0f, 9.5f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_white.png", 5.2f, 16.5f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 34.0f, 10.0f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_pink.png", 32.5f, 16.5f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_white.png", 12.0f, 2.8f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 37.0f, 8.0f, null);
 
             // ---- 地图边界碰撞（设计文档 4.5）
             var bounds = new GameObject("Bounds").transform;
-            MakeWall(bounds, "WallTop", new Vector2(MapW / 2f, MapH - WallRows + 0.5f), new Vector2(MapW + 4, 1));
+            MakeWall(bounds, "WallTop", new Vector2(MapW / 2f, MapH - WallRows + 0.5f), new Vector2(MapW + 4, WallRows));
             MakeWall(bounds, "WallBottom", new Vector2(MapW / 2f, -0.5f), new Vector2(MapW + 4, 1));
             MakeWall(bounds, "WallLeft", new Vector2(-0.5f, MapH / 2f), new Vector2(1, MapH + 4));
             MakeWall(bounds, "WallRight", new Vector2(MapW + 0.5f, MapH / 2f), new Vector2(1, MapH + 4));
 
             // ---- 玩家（出生在木屋门口土路上，面向下方）
             var player = new GameObject("Player", typeof(Rigidbody2D), typeof(CircleCollider2D),
-                                        typeof(PlayerController), typeof(PlayerAppearance));
-            player.transform.position = new Vector3(PathLeft + 1f, 13f, 0f);
+                                        typeof(PlayerController), typeof(PlayerAppearance), typeof(YSort));
+            player.transform.position = new Vector3(HouseDoorX, 12.5f, 0f);
 
             var visual = new GameObject("Visual", typeof(SpriteRenderer), typeof(Animator));
             visual.transform.SetParent(player.transform, false);
@@ -483,6 +507,12 @@ namespace LuminousSSS.EditorTools
                 new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = witchCtrl },
             };
 
+            // Y 轴动态排序（与物件烘焙公式一致：MapH * 10 - y * 10）
+            var ys = player.GetComponent<YSort>();
+            ys.target = sr;
+            ys.multiplier = 10f;
+            ys.offset = MapH * 10;
+
             var follow = camGO.GetComponent<CameraFollow>();
             follow.target = player.transform;
             follow.useBounds = true;
@@ -490,10 +520,14 @@ namespace LuminousSSS.EditorTools
             follow.max = new Vector2(MapW, MapH);
 
             EditorSceneManager.MarkSceneDirty(scene);
-            EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.unity");
+            EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.scene");
         }
 
-        static void PlaceProp(Transform parent, string rel, float tileX, float groundY, int order)
+        /// <summary>
+        /// 摆一个物件：sprite 按「底部对齐到 groundY」放置，排序按 groundY 烘焙
+        /// （与玩家的 YSort 公式一致）。collider 非空时加一个底部碰撞盒（宽 x 高）。
+        /// </summary>
+        static void PlaceProp(Transform parent, string rel, float tileX, float groundY, Vector2? collider)
         {
             var sp = S(rel);
             if (sp == null) { Debug.LogWarning("[LuminousSSS] 缺少素材: " + rel); return; }
@@ -505,7 +539,14 @@ namespace LuminousSSS.EditorTools
             float h = sp.rect.height / sp.pixelsPerUnit;
             go.transform.position = new Vector3(tileX, groundY + h * 0.5f, 0f);
             // 越靠下越晚渲染，避免互相穿插时穿帮
-            sr.sortingOrder = order + Mathf.RoundToInt((MapH - groundY) * 10f);
+            sr.sortingOrder = Mathf.RoundToInt((MapH - groundY) * 10f);
+
+            if (collider.HasValue)
+            {
+                var box = go.AddComponent<BoxCollider2D>();
+                box.size = collider.Value;
+                box.offset = new Vector2(0f, -h * 0.5f + collider.Value.y * 0.5f);
+            }
         }
 
         static void MakeWall(Transform parent, string name, Vector2 center, Vector2 size)
@@ -557,7 +598,7 @@ namespace LuminousSSS.EditorTools
         // ------------------------------------------------------------ Build Settings
         static void RegisterBuildScenes()
         {
-            var wanted = new[] { ScenesDir + "/LoginScene.unity", ScenesDir + "/FarmScene.unity" };
+            var wanted = new[] { ScenesDir + "/LoginScene.scene", ScenesDir + "/FarmScene.scene" };
             var list = new List<EditorBuildSettingsScene>();
             foreach (var w in wanted)
                 if (System.IO.File.Exists(w))
