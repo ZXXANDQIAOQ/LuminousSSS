@@ -1,17 +1,60 @@
-node_modules/
-*.log
+# ===================== Unity / 团结引擎 生成目录 =====================
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# 通过 UnityX 导入的资源（自动生成）
+/[Aa]ssets/AssetStoreTools*
+
+# 自动生成的解决方案与工程文件
+/*.csproj
+/*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+.vs/
+.vsconfig
+
+# ===================== 工具链 / 版本控制残留 =====================
+# Plastic SCM（团结内置）
+.plastic/
+ignore.conf
+
+# 团结 AI 桥接
+.codely-cli/
+.codely.packages/
+.codelyignore
+
+# WorkBuddy 项目记忆
+.workbuddy/
+
+# ===================== 构建产物 =====================
+*.apk
+*.aab
+*.unitypackage
+*.app
+/[Ee]xported[Oo]bj/
+crashlytics-build.properties
+
+# ===================== 操作系统 =====================
 .DS_Store
 Thumbs.db
-.playwright-cli/
+desktop.ini
 
-# Android 构建中间产物 / 签名密钥（密钥切勿提交）
-android/build/
-android/assets/www/
-android/keystore/
-*.keystore
-*.jks
-
-# 本地工作记忆（不发布）
-.workbuddy/
-# apksigner v4 签名副产物
-*.idsig
+# ===================== 保留 =====================
+# Assets 下的 .meta 必须纳入版本控制
+!/[Aa]ssets/**/*.meta

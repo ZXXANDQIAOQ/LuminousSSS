@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <LangVersion>9.0</LangVersion>
+    <DefineConstants>UNITY_EDITOR;UNITY_STANDALONE_WIN;UNITY_2022_3_OR_NEWER</DefineConstants>
+    <MSBuildWarningsAsMessages>MSB3277;MSB3270;MSB3245;MSB3243</MSBuildWarningsAsMessages>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TuanjieEditor Condition="'$(TUANJIE_EDITOR)' != ''">$(TUANJIE_EDITOR)</TuanjieEditor>
+    <TuanjieEditor Condition="'$(TuanjieEditor)' == ''">E:/App/GameWorker/Editor/2022.3.62t16/Editor</TuanjieEditor>
+    <UnityModules>$(TuanjieEditor)/Data/Managed/UnityEngine</UnityModules>
+    <UnityProject>$(MSBuildThisFileDirectory)../../</UnityProject>
+  </PropertyGroup>
+
+  <Target Name="CheckEditorPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(UnityModules)')"
+           Text="找不到引擎程序集目录：$(UnityModules)。请设置环境变量 TUANJIE_EDITOR。" />
+  </Target>
+
+  <ItemGroup>
+    <Compile Include="$(UnityProject)Assets/Scripts/**/*.cs" />
+    <Compile Include="$(UnityProject)Assets/Editor/**/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="$(UnityModules)/*.dll"
+               Exclude="$(UnityModules)/UnityEngine.dll;$(UnityModules)/UnityEditor.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(UnityProject)Library/ScriptAssemblies/UnityEngine.UI.dll">
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="$(UnityProject)Library/ScriptAssemblies/Unity.TextMeshPro.dll"
+               Condition="Exists('$(UnityProject)Library/ScriptAssemblies/Unity.TextMeshPro.dll')">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
