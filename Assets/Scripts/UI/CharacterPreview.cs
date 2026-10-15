@@ -21,6 +21,7 @@ namespace LuminousSSS
         private RectTransform _rt;
         private Vector2 _basePos;
         private float _t;
+        private float _scale = 1f;
 
         private void Awake()
         {
@@ -29,11 +30,17 @@ namespace LuminousSSS
             if (_rt != null) _basePos = _rt.anchoredPosition;
         }
 
-        /// <summary>切换展示的角色。frames 为 null/空时隐藏。</summary>
-        public void SetFrames(Sprite[] frames)
+        /// <summary>
+        /// 切换展示的角色。frames 为 null/空时隐藏。
+        /// displayScale 为立绘显示缩放（见 CharacterInfo.displayScale）：改的是容器的
+        /// localScale，sprite 仍按 preserveAspect 自适应，所以像素比例不变、也不会被拉伸。
+        /// </summary>
+        public void SetFrames(Sprite[] frames, float displayScale = 1f)
         {
             _frames = frames;
             _t = 0f;
+            _scale = Mathf.Max(0.05f, displayScale);
+            if (_rt != null) _rt.localScale = new Vector3(_scale, _scale, 1f);
             bool has = frames != null && frames.Length > 0 && frames[0] != null;
             if (target != null)
             {
@@ -56,7 +63,9 @@ namespace LuminousSSS
             }
             else if (_rt != null && bobPeriod > 0.01f)
             {
-                float y = Mathf.Sin(_t * Mathf.PI * 2f / bobPeriod) * bobPixels;
+                // 浮动幅度跟着 displayScale 走：容器被缩小时，位移同步缩小，
+                // 观感才和未缩放的角色一致
+                float y = Mathf.Sin(_t * Mathf.PI * 2f / bobPeriod) * bobPixels * _scale;
                 _rt.anchoredPosition = _basePos + new Vector2(0f, y);
             }
         }

@@ -80,13 +80,17 @@ namespace LuminousSSS
 
             if (preview != null)
             {
-                preview.SetFrames(frames);
+                // displayScale 让 Q 版小像素素材（女巫）和人形立绘在版式里体量协调
+                preview.SetFrames(frames, c.displayScale);
             }
             else if (portraitImage != null)
             {
                 portraitImage.sprite = frames != null ? frames[0] : null;
                 portraitImage.enabled = frames != null;
                 portraitImage.preserveAspect = true;
+                // 与 preview 分支保持一致的显示缩放
+                float s = Mathf.Max(0.05f, c.displayScale);
+                portraitImage.rectTransform.localScale = new Vector3(s, s, 1f);
             }
             if (nameLabel != null) nameLabel.text = c.displayName;
         }

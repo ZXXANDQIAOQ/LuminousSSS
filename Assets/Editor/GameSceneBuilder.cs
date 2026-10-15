@@ -468,6 +468,12 @@ namespace LuminousSSS.EditorTools
                     displayName = "女巫",
                     portrait = S(WitchIdleSprite),
                     worldSprite = S(WitchIdleSprite),
+                    // 女巫素材是 54×101 的 Q 版小像素人，人形立绘高 1024：
+                    // 不压回来的话会被 preserveAspect 放大到 260×486，比农夫（199×512）还宽，
+                    // 而且是大颗粒像素块，和精细立绘并列很割裂。
+                    // 0.7 → 实际显示约 182×340（Q 版小人略矮于人手立绘，宽度相近）。
+                    // 嫌高/矮改这一个数即可。
+                    displayScale = 0.7f,
                     idleFrames = new[]
                     {
                         S(WitchIdleSprite),

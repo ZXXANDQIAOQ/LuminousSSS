@@ -47,5 +47,13 @@ namespace LuminousSSS
         public Sprite portrait;      // 登录界面立绘
         public Sprite worldSprite;   // 场景内的小像素人
         public Sprite[] idleFrames;  // 待机动画帧（多帧则轮播；为空则立绘 + 浮动）
+
+        /// <summary>
+        /// 立绘显示缩放，只影响登录界面的展示大小，不改变素材本身。
+        /// 人形立绘（高 1024）填 1；Q 版小像素素材（如女巫 54×101）远小于人形立绘，
+        /// 放进同一个 260×512 容器会被 preserveAspect 放大到几乎和人形立绘一样大，
+        /// 需要用 &lt;1 的值压回来，让两种素材在版式里体量协调。
+        /// </summary>
+        public float displayScale = 1f;
     }
 }
