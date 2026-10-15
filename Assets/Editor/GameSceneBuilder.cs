@@ -110,17 +110,96 @@ namespace LuminousSSS.EditorTools
             return tile;
         }
 
+        // ------------------------------------------------------------ 女巫动画资产
+        // 旧版 witch_idle / witch_walk_down 引用的 sprite GUID 已不在仓库中（悬空引用，
+        // 播放时 SpriteRenderer 会被动画置空）。这里用 V2/Characters 下现成的素材
+        // 整体重写：idle 两帧循环 + 四方向各 6 帧行走（文件名保持不变，场景里的
+        // 引用不会断）。
+        static void EnsureWitchAnimations()
+        {
+            // 待机：idle + 呼吸 bob 两帧循环
+            var idleFrames = new[]
+            {
+                S("V2/Characters/v2_witch_idle.png"),
+                S("V2/Characters/v2_witch_idle_bob.png"),
+            };
+            if (idleFrames[0] == null || idleFrames[1] == null)
+            {
+                Debug.LogWarning("[LuminousSSS] 缺少女巫待机帧（v2_witch_idle / v2_witch_idle_bob）。");
+            }
+            else
+            {
+                WriteSpriteClip(AnimDir + "witch_idle.anim", idleFrames, 2f);
+            }
+
+            // 行走：四方向各 6 帧（v2_walk_down/up/left/right_01..06）
+            foreach (var dir in new[] { "down", "up", "left", "right" })
+                EnsureWalkClip(dir);
+        }
+
+        static void EnsureWalkClip(string dir)
+        {
+            var frames = new Sprite[6];
+            for (int i = 0; i < 6; i++)
+            {
+                frames[i] = S($"V2/Characters/v2_walk_{dir}_{i + 1:00}.png");
+                if (frames[i] == null)
+                {
+                    Debug.LogWarning($"[LuminousSSS] 缺少行走帧: V2/Characters/v2_walk_{dir}_{i + 1:00}.png");
+                    return;
+                }
+            }
+            WriteSpriteClip(AnimDir + $"witch_walk_{dir}.anim", frames, 8f);
+        }
+
+        /// <summary>
+        /// 创建（或整体重写）一个「按时间切换 SpriteRenderer.sprite」的循环动画剪辑。
+        /// PPtr 曲线整体重设，旧文件里的悬空 sprite 引用会被一并清掉。
+        /// </summary>
+        static void WriteSpriteClip(string path, Sprite[] frames, float fps)
+        {
+            if (frames == null || frames.Length == 0) return;
+
+            var clip = AssetDatabase.LoadAssetAtPath<AnimationClip>(path);
+            bool isNew = clip == null;
+            if (isNew) clip = new AnimationClip();
+
+            var keys = new ObjectReferenceKeyframe[frames.Length];
+            for (int i = 0; i < frames.Length; i++)
+                keys[i] = new ObjectReferenceKeyframe { time = i / fps, value = frames[i] };
+
+            var binding = EditorCurveBinding.PPtrCurve(string.Empty, typeof(SpriteRenderer), "m_Sprite");
+            AnimationUtility.SetObjectReferenceCurve(clip, binding, keys);
+
+            clip.frameRate = fps;
+            var settings = AnimationUtility.GetAnimationClipSettings(clip);
+            settings.loopTime = true;
+            AnimationUtility.SetAnimationClipSettings(clip, settings);
+
+            if (isNew) AssetDatabase.CreateAsset(clip, path);
+            else EditorUtility.SetDirty(clip);
+        }
+
         // ------------------------------------------------------------ 女巫动画控制器
-        // 用户在编辑器里手建的 WitchPlayerController.controller 可能只有参数、没有状态机，
-        // 那样 Play 模式不会播任何动画。这里用编辑器 API 原地修复（保持资产 guid 不变，
-        // SampleScene 里的引用不会断）。
+        // 四方向状态机：Idle + WalkDown/Up/Left/Right。
+        // 参数由 CharacterAnimDriver 每帧写入（PlayerController 记录的朝向是主轴
+        // 单位向量，所以 MoveX/MoveY 同一时刻只有一个非零）：
+        //   Speed  0/1   是否在移动
+        //   MoveX -1/0/1 主轴朝向（水平优先）
+        //   MoveY -1/0/1 主轴朝向
+        // 旧版只有 Idle/Walk 两个状态、FacingUp 是死参数，这里幂等重建。
         static void EnsureWitchController()
         {
+            EnsureWitchAnimations();
+
             var idle = A<AnimationClip>(AnimDir + "witch_idle.anim");
-            var walk = A<AnimationClip>(AnimDir + "witch_walk_down.anim");
-            if (idle == null || walk == null)
+            var walkDown = A<AnimationClip>(AnimDir + "witch_walk_down.anim");
+            var walkUp = A<AnimationClip>(AnimDir + "witch_walk_up.anim");
+            var walkLeft = A<AnimationClip>(AnimDir + "witch_walk_left.anim");
+            var walkRight = A<AnimationClip>(AnimDir + "witch_walk_right.anim");
+            if (idle == null || walkDown == null || walkUp == null || walkLeft == null || walkRight == null)
             {
-                Debug.LogWarning("[LuminousSSS] 未找到女巫动画剪辑（witch_idle / witch_walk_down），跳过控制器生成。");
+                Debug.LogWarning("[LuminousSSS] 行走动画剪辑不完整，跳过控制器生成。");
                 return;
             }
 
@@ -129,49 +208,97 @@ namespace LuminousSSS.EditorTools
                 ctrl = AnimatorController.CreateAnimatorControllerAtPath(WitchCtrlPath);
 
             EnsureParam(ctrl, "Speed", AnimatorControllerParameterType.Float);
-            EnsureParam(ctrl, "FacingUp", AnimatorControllerParameterType.Bool);
+            EnsureParam(ctrl, "MoveX", AnimatorControllerParameterType.Float);
+            EnsureParam(ctrl, "MoveY", AnimatorControllerParameterType.Float);
+            RemoveParam(ctrl, "FacingUp");   // 旧版遗留的死参数
 
-            // 拿到底层状态机；控制器是空壳（手建的）时给它补一个
-            var layers = ctrl.layers;
-            AnimatorStateMachine sm;
-            if (layers.Length == 0 || layers[0].stateMachine == null)
-            {
-                sm = new AnimatorStateMachine { name = "Base Layer", hideFlags = HideFlags.HideInHierarchy };
-                AssetDatabase.AddObjectToAsset(sm, ctrl);
-                var layer = layers.Length == 0
-                    ? new AnimatorControllerLayer { name = "Base Layer", defaultWeight = 1f }
-                    : layers[0];
-                layer.stateMachine = sm;
-                ctrl.layers = new[] { layer };
-            }
-            else
-            {
-                sm = layers[0].stateMachine;
-            }
+            var sm = GetOrCreateStateMachine(ctrl);
 
-            // 幂等：复用同名状态、清掉旧过渡后重建
+            // 清掉旧版遗留的状态（旧版叫 Walk），防止状态机里留孤儿
+            var keep = new HashSet<string> { "Idle", "WalkDown", "WalkUp", "WalkLeft", "WalkRight" };
+            foreach (var s in sm.states)
+                if (s.state != null && !keep.Contains(s.state.name))
+                    sm.RemoveState(s.state);
+
             var idleState = FindState(sm, "Idle") ?? sm.AddState("Idle");
             idleState.motion = idle;
             idleState.transitions = new AnimatorStateTransition[0];
 
-            var walkState = FindState(sm, "Walk") ?? sm.AddState("Walk");
-            walkState.motion = walk;
-            walkState.transitions = new AnimatorStateTransition[0];
+            var sDown = FindState(sm, "WalkDown") ?? sm.AddState("WalkDown");
+            var sUp = FindState(sm, "WalkUp") ?? sm.AddState("WalkUp");
+            var sLeft = FindState(sm, "WalkLeft") ?? sm.AddState("WalkLeft");
+            var sRight = FindState(sm, "WalkRight") ?? sm.AddState("WalkRight");
+            sDown.motion = walkDown;
+            sUp.motion = walkUp;
+            sLeft.motion = walkLeft;
+            sRight.motion = walkRight;
+            foreach (var s in new[] { sDown, sUp, sLeft, sRight })
+                s.transitions = new AnimatorStateTransition[0];
 
             sm.defaultState = idleState;
 
-            var toWalk = idleState.AddTransition(walkState);
-            toWalk.hasExitTime = false;
-            toWalk.duration = 0.08f;
-            toWalk.AddCondition(AnimatorConditionMode.Greater, 0.01f, "Speed");
+            // (状态, 参数名, 符号)：-1 表示该参数 < -0.5，+1 表示 > 0.5
+            var walks = new (AnimatorState st, string axis, int sign)[]
+            {
+                (sDown, "MoveY", -1),
+                (sUp, "MoveY", +1),
+                (sLeft, "MoveX", -1),
+                (sRight, "MoveX", +1),
+            };
+            AnimatorConditionMode ModeOf(int sign) =>
+                sign < 0 ? AnimatorConditionMode.Less : AnimatorConditionMode.Greater;
+            float ThresholdOf(int sign) => 0.5f;
 
-            var toIdle = walkState.AddTransition(idleState);
-            toIdle.hasExitTime = false;
-            toIdle.duration = 0.08f;
-            toIdle.AddCondition(AnimatorConditionMode.Less, 0.01f, "Speed");
+            // Idle → 各方向：在走 && 朝向匹配
+            foreach (var w in walks)
+                AddTrans(idleState, w.st, 0.06f,
+                    ("Speed", AnimatorConditionMode.Greater, 0.01f),
+                    (w.axis, ModeOf(w.sign), ThresholdOf(w.sign)));
+
+            // 各方向 → Idle：停下
+            foreach (var w in walks)
+                AddTrans(w.st, idleState, 0.08f, ("Speed", AnimatorConditionMode.Less, 0.01f));
+
+            // 各方向互转：边走边换方向不停步。
+            // 上面已把 5 个状态的 transitions 全部清空，这里是统一重建，重复执行不会累积。
+            foreach (var from in walks)
+                foreach (var to in walks)
+                {
+                    if (from.st == to.st) continue;
+                    AddTrans(from.st, to.st, 0.06f,
+                        ("Speed", AnimatorConditionMode.Greater, 0.01f),
+                        (to.axis, ModeOf(to.sign), ThresholdOf(to.sign)));
+                }
 
             EditorUtility.SetDirty(ctrl);
-            Debug.Log("[LuminousSSS] 女巫 AnimatorController 已就绪：" + WitchCtrlPath);
+            Debug.Log("[LuminousSSS] 女巫 AnimatorController 已就绪（Idle + 四方向行走）：" + WitchCtrlPath);
+        }
+
+        static void AddTrans(AnimatorState from, AnimatorState to, float duration,
+            params (string name, AnimatorConditionMode mode, float threshold)[] conds)
+        {
+            var t = from.AddTransition(to);
+            t.hasExitTime = false;
+            t.duration = duration;
+            foreach (var c in conds)
+                t.AddCondition(c.mode, c.threshold, c.name);
+        }
+
+        static AnimatorStateMachine GetOrCreateStateMachine(AnimatorController ctrl)
+        {
+            var layers = ctrl.layers;
+            if (layers.Length > 0 && layers[0].stateMachine != null)
+                return layers[0].stateMachine;
+
+            // 控制器是空壳（手建的）时给它补一个状态机
+            var sm = new AnimatorStateMachine { name = "Base Layer", hideFlags = HideFlags.HideInHierarchy };
+            AssetDatabase.AddObjectToAsset(sm, ctrl);
+            var layer = layers.Length == 0
+                ? new AnimatorControllerLayer { name = "Base Layer", defaultWeight = 1f }
+                : layers[0];
+            layer.stateMachine = sm;
+            ctrl.layers = new[] { layer };
+            return sm;
         }
 
         static AnimatorState FindState(AnimatorStateMachine sm, string name)
@@ -186,6 +313,13 @@ namespace LuminousSSS.EditorTools
             foreach (var p in ctrl.parameters)
                 if (p.name == name) return;
             ctrl.AddParameter(name, type);
+        }
+
+        static void RemoveParam(AnimatorController ctrl, string name)
+        {
+            var list = new List<AnimatorControllerParameter>(ctrl.parameters);
+            if (list.RemoveAll(p => p.name == name) > 0)
+                ctrl.parameters = list.ToArray();
         }
 
         // ------------------------------------------------------------ 全局音频
@@ -472,7 +606,8 @@ namespace LuminousSSS.EditorTools
 
             // ---- 玩家（出生在木屋门口土路上，面向下方）
             var player = new GameObject("Player", typeof(Rigidbody2D), typeof(CircleCollider2D),
-                                        typeof(PlayerController), typeof(PlayerAppearance), typeof(YSort));
+                                        typeof(PlayerController), typeof(PlayerAppearance),
+                                        typeof(YSort), typeof(CharacterAnimDriver));
             player.transform.position = new Vector3(HouseDoorX, 12.5f, 0f);
 
             var visual = new GameObject("Visual", typeof(SpriteRenderer), typeof(Animator));
@@ -492,9 +627,11 @@ namespace LuminousSSS.EditorTools
             cc.radius = 0.32f;
             cc.offset = new Vector2(0f, 0.45f);
 
-            var pc = player.GetComponent<PlayerController>();
-            pc.bodyRenderer = sr;
-            pc.animator = anim;
+            // CharacterAnimDriver 自己会在子物体里找 SpriteRenderer / Animator / PlayerController：
+            // 女巫（有 controller）走四方向动画；静态角色走 flipX + 走路小跳。
+            var driver = player.GetComponent<CharacterAnimDriver>();
+            driver.bobHeight = 0.06f;   // 约 4 像素（V2 素材 64 PPU）
+            driver.bobFrequency = 8f;
 
             var pa = player.GetComponent<PlayerAppearance>();
             pa.target = sr;
