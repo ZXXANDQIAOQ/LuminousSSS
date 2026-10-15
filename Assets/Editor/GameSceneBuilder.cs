@@ -26,6 +26,32 @@ namespace LuminousSSS.EditorTools
         const string TilesDir = "Assets/Tiles";
         const string ScenesDir = "Assets/Scenes";
 
+        // ------------------------------------------------------------ UI 素材
+        // 登录界面全部使用 Art/V2/UI 下现成的像素 UI 素材，不再用纯色方块拼。
+        const string UiRoot = "V2/UI/";
+        const string UiLoginBg = UiRoot + "v2_ui_login_bg.png";              // 全屏底图（程序化生成）
+        const string UiPanelTall = UiRoot + "v2_ui_dialog_panel_tall.png";   // 纵向羊皮纸面板
+        const string UiDialog = UiRoot + "v2_ui_dialog_panel.png";           // 横向羊皮纸面板（弹窗用）
+        const string UiBtnWood = UiRoot + "v2_ui_button_wood.png";           // 木纹按钮底（已清理残字）
+        const string UiBtnOn = UiRoot + "v2_ui_button_selected.png";         // 木纹按钮·选中态（黄框）
+        const string UiIconGear = UiRoot + "v2_ui_icon_gear.png";            // 齿轮
+        const string UiArrowLeft = UiRoot + "v2_ui_icon_arrow_left.png";
+        const string UiArrowRight = UiRoot + "v2_ui_icon_arrow_right.png";
+        const string UiPortraitShadow = UiRoot + "v2_ui_portrait_shadow.png"; // 立绘脚下投影
+
+        /// <summary>
+        /// 九宫格边界的 PPU 补偿系数。
+        /// UI 素材 PPU=64，Canvas.referencePixelsPerUnit=100，不补偿的话
+        /// spriteBorder 会被放大 100/64≈1.5625 倍，边框变粗、像素不再是 1:1。
+        /// 补偿后边框按素材原始像素显示，硬边不糊。
+        /// </summary>
+        const float UiPpu = 100f / 64f;
+
+        // 界面文字色：木纹/木牌上用暖白，羊皮纸上用深棕（保证对比度）
+        static readonly Color WoodTextColor = new Color32(255, 243, 208, 255);
+        static readonly Color ParchmentTextColor = new Color32(74, 42, 12, 255);
+        static readonly Color WoodTextOutline = new Color32(74, 38, 8, 220);
+
         // 农场地图（tile 单位）：40 x 24，1 tile = 1 世界单位
         const int MapW = 40;
         const int MapH = 24;
@@ -337,6 +363,13 @@ namespace LuminousSSS.EditorTools
         }
 
         // ------------------------------------------------------------ 登录场景
+        // 版式（1920x1080 参考分辨率，坐标为「距屏幕左上角」的像素）：
+        //   标题木牌   中心 (960, 120)      660x110
+        //   主面板     中心 (960, 620)      820x840   → 占 y 200..1040
+        //   立绘       中心 (960, 510)      512 高    → 对 1024 高的素材做 1:2 整数缩放
+        //   切换按钮   中心 (736 / 1184, 510)  128x128
+        //   角色名     中心 (960, 845)
+        //   按钮行     中心 y 960，320x104，两个，各距中线 190
         static void BuildLoginScene()
         {
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
@@ -345,7 +378,7 @@ namespace LuminousSSS.EditorTools
             camGO.tag = "MainCamera";
             var cam = camGO.GetComponent<Camera>();
             cam.clearFlags = CameraClearFlags.SolidColor;
-            cam.backgroundColor = new Color(0.145f, 0.125f, 0.11f);
+            cam.backgroundColor = new Color(0.09f, 0.07f, 0.05f);
             cam.orthographic = true;
             camGO.transform.position = new Vector3(0, 0, -10);
 
@@ -358,46 +391,59 @@ namespace LuminousSSS.EditorTools
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
             scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
-            scaler.matchWidthOrHeight = 0.5f;
+            // 横屏游戏按「高度」适配：所有 16:9 分辨率都映射成 1920x1080 虚拟画布，
+            // 更宽的屏（21:9）左右留白、更窄的屏（4:3）也左右留白，内容永远完整不裁。
+            // 原来的 0.5 在 21:9 下虚拟高只剩 935，底部按钮会被裁掉。
+            scaler.matchWidthOrHeight = 1.0f;
             canvasGO.AddComponent<UIFontFixer>();
 
-            var esGO = new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+            new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
 
             var root = canvasGO.transform;
 
-            // 背景底色
+            // ---- 背景：暗色渐变 + 中心辉光（Simple 全屏拉伸，任意分辨率都铺满）
             var bg = CreateUI<Image>("Background", root, new Vector2(960, 540), new Vector2(1920, 1080));
-            bg.color = new Color(0.176f, 0.152f, 0.129f);
+            bg.sprite = S(UiLoginBg);
+            bg.type = Image.Type.Simple;
+            bg.raycastTarget = false;
 
-            // 顶部装饰条
-            var bar = CreateUI<Image>("TopBar", root, new Vector2(960, 1000), new Vector2(1920, 160));
-            bar.color = new Color(0.278f, 0.216f, 0.145f);
+            // ---- 主面板：羊皮纸九宫格，其余元素全部压在它上面
+            MakeSliced("MainPanel", root, UiPanelTall, new Vector2(960, 620), new Vector2(820, 840));
 
-            // 标题
-            var title = CreateUI<Text>("Title", root, new Vector2(960, 960), new Vector2(1200, 140));
-            Style(title, "LuminousSSS", 96, TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.75f));
+            // ---- 标题木牌（图上不放文字：标题交给 Text 渲染，方便换语种与换字体）
+            var plate = MakeSliced("TitlePlate", root, UiBtnWood, new Vector2(960, 120), new Vector2(660, 110));
+            var title = CreateUI<Text>("Title", plate.transform, new Vector2(330, 55), new Vector2(660, 110));
+            Style(title, "LuminousSSS", 56, TextAnchor.MiddleCenter, WoodTextColor);
+            AddOutline(title, WoodTextOutline, 2f);
 
-            // 角色待机预览（多帧角色轮播 idle，单帧角色上下浮动）
-            var portrait = CreateUI<Image>("Portrait", root, new Vector2(960, 560), new Vector2(560, 620));
+            // ---- 立绘：脚下先铺一层投影，避免角色"飘"在纸上
+            var shadow = CreateUI<Image>("PortraitShadow", root, new Vector2(960, 764), new Vector2(280, 70));
+            shadow.sprite = S(UiPortraitShadow);
+            shadow.type = Image.Type.Simple;
+            shadow.raycastTarget = false;
+
+            var portrait = CreateUI<Image>("Portrait", root, new Vector2(960, 510), new Vector2(260, 512));
             portrait.preserveAspect = true;
+            portrait.raycastTarget = false;
             var preview = portrait.gameObject.AddComponent<CharacterPreview>();
             preview.target = portrait;
 
-            // ◀ ▶
-            var prevBtn = MakeButton(root, "PrevButton", "◀", new Vector2(340, 560), new Vector2(120, 120));
-            var nextBtn = MakeButton(root, "NextButton", "▶", new Vector2(1580, 560), new Vector2(120, 120));
+            // ---- 左右切换
+            var prevBtn = MakeIconButton(root, "PrevButton", UiArrowLeft, new Vector2(736, 510), new Vector2(128, 128));
+            var nextBtn = MakeIconButton(root, "NextButton", UiArrowRight, new Vector2(1184, 510), new Vector2(128, 128));
 
-            // 角色名
-            var nameText = CreateUI<Text>("CharacterName", root, new Vector2(960, 190), new Vector2(800, 90));
-            Style(nameText, "农夫", 60, TextAnchor.MiddleCenter, new Color(1f, 0.96f, 0.88f));
+            // ---- 角色名
+            var nameText = CreateUI<Text>("CharacterName", root, new Vector2(960, 845), new Vector2(700, 80));
+            Style(nameText, "农 夫", 44, TextAnchor.MiddleCenter, ParchmentTextColor);
 
-            // 开始 / 设置
-            var startBtn = MakeButton(root, "StartButton", "开 始 游 戏", new Vector2(780, 90), new Vector2(340, 96));
-            startBtn.GetComponent<Image>().color = new Color(0.35f, 0.62f, 0.29f);
-            var settingsBtn = MakeButton(root, "SettingsButton", "设 置", new Vector2(1140, 90), new Vector2(340, 96));
-            settingsBtn.GetComponent<Image>().color = new Color(0.42f, 0.35f, 0.28f);
+            // ---- 开始（主）/ 设置（次）：同一套底板，靠 tint 与图标分主次
+            var startBtn = MakeButton(root, "StartButton", "开 始 游 戏",
+                                      new Vector2(770, 960), new Vector2(320, 104), Color.white);
+            var settingsBtn = MakeButton(root, "SettingsButton", "设 置",
+                                         new Vector2(1150, 960), new Vector2(320, 104),
+                                         new Color(0.84f, 0.82f, 0.78f), UiIconGear);
 
-            // 设置弹窗（初始隐藏，绘制在最上层）
+            // ---- 设置弹窗（初始隐藏，绘制在最上层）
             var settingsPanel = BuildSettingsPanel(root);
 
             // 逻辑挂载
@@ -413,9 +459,9 @@ namespace LuminousSSS.EditorTools
             selector.nextSceneName = GameData.SceneFarm;
             selector.characters = new[]
             {
-                NewChar("001", "农夫", "portrait_001_farmer.png", "char_001_farmer.png"),
-                NewChar("002", "雨女", "portrait_002_rain_maiden.png", "char_002_rain_maiden.png"),
-                NewChar("003", "冒险者", "portrait_003_adventurer.png", "char_003_adventurer.png"),
+                NewChar("001", "农夫", "v2_portrait_001_farmer.png", "char_001_farmer.png"),
+                NewChar("002", "雨女", "v2_portrait_002_rain_maiden.png", "char_002_rain_maiden.png"),
+                NewChar("003", "冒险者", "v2_portrait_003_adventurer.png", "char_003_adventurer.png"),
                 new CharacterInfo
                 {
                     id = "004",
@@ -436,6 +482,8 @@ namespace LuminousSSS.EditorTools
         }
 
         // ------------------------------------------------------------ 设置弹窗
+        // 面板 900x600 居中，内部元素一律用「面板局部坐标（距面板左上角）」。
+        //   标题 局部 y 100 ／ 音乐行 y 260 ／ 音效行 y 390 ／ 关闭 y 515
         static SettingsPanel BuildSettingsPanel(Transform root)
         {
             var rootGO = new GameObject("SettingsPanel", typeof(RectTransform), typeof(SettingsPanel));
@@ -446,28 +494,27 @@ namespace LuminousSSS.EditorTools
             rrt.offsetMin = Vector2.zero;
             rrt.offsetMax = Vector2.zero;
 
-            // 遮罩：挡住背后的按钮
+            // 遮罩：必须吃射线，否则点击会穿透到底下的「开始游戏」
             var overlay = CreateUI<Image>("Overlay", rootGO.transform, new Vector2(960, 540), new Vector2(1920, 1080));
-            overlay.color = new Color(0f, 0f, 0f, 0.55f);
+            overlay.color = new Color(0f, 0f, 0f, 0.62f);
 
-            // 面板本体（子元素用面板内坐标：760x600）
-            var box = CreateUI<Image>("Box", rootGO.transform, new Vector2(960, 540), new Vector2(760, 600));
-            box.color = new Color(0.23f, 0.19f, 0.15f);
+            // 面板本体
+            var box = MakeSliced("Box", rootGO.transform, UiDialog, new Vector2(960, 540), new Vector2(900, 600));
 
-            var title = CreateUI<Text>("Title", box.transform, new Vector2(380, 70), new Vector2(400, 84));
-            Style(title, "设 置", 56, TextAnchor.MiddleCenter, new Color(1f, 0.92f, 0.75f));
+            var title = CreateUI<Text>("Title", box.transform, new Vector2(450, 100), new Vector2(700, 90));
+            Style(title, "设 置", 48, TextAnchor.MiddleCenter, ParchmentTextColor);
 
-            var musicLabel = CreateUI<Text>("MusicLabel", box.transform, new Vector2(190, 200), new Vector2(260, 76));
-            Style(musicLabel, "音 乐", 44, TextAnchor.MiddleRight, new Color(1f, 0.96f, 0.88f));
-            var musicToggle = MakeButton(box.transform, "MusicToggle", "开", new Vector2(540, 200), new Vector2(200, 88));
+            var musicLabel = CreateUI<Text>("MusicLabel", box.transform, new Vector2(190, 260), new Vector2(300, 70));
+            Style(musicLabel, "音 乐", 36, TextAnchor.MiddleCenter, ParchmentTextColor);
+            var musicToggle = MakeButton(box.transform, "MusicToggle", "开", new Vector2(640, 260), new Vector2(300, 88), Color.white);
             var musicText = musicToggle.transform.Find("Label").GetComponent<Text>();
 
-            var sfxLabel = CreateUI<Text>("SfxLabel", box.transform, new Vector2(190, 330), new Vector2(260, 76));
-            Style(sfxLabel, "音 效", 44, TextAnchor.MiddleRight, new Color(1f, 0.96f, 0.88f));
-            var sfxToggle = MakeButton(box.transform, "SfxToggle", "开", new Vector2(540, 330), new Vector2(200, 88));
+            var sfxLabel = CreateUI<Text>("SfxLabel", box.transform, new Vector2(190, 390), new Vector2(300, 70));
+            Style(sfxLabel, "音 效", 36, TextAnchor.MiddleCenter, ParchmentTextColor);
+            var sfxToggle = MakeButton(box.transform, "SfxToggle", "开", new Vector2(640, 390), new Vector2(300, 88), Color.white);
             var sfxText = sfxToggle.transform.Find("Label").GetComponent<Text>();
 
-            var closeBtn = MakeButton(box.transform, "CloseButton", "关 闭", new Vector2(380, 490), new Vector2(280, 96));
+            var closeBtn = MakeButton(box.transform, "CloseButton", "关 闭", new Vector2(450, 515), new Vector2(300, 100), Color.white);
 
             var sp = rootGO.GetComponent<SettingsPanel>();
             sp.panelRoot = rootGO;
@@ -476,6 +523,10 @@ namespace LuminousSSS.EditorTools
             sp.sfxToggle = sfxToggle.GetComponent<Button>();
             sp.sfxStateText = sfxText;
             sp.closeButton = closeBtn.GetComponent<Button>();
+            // 开 / 关换底板（黄框=开）：比单纯改颜色更一眼可辨，也是这套素材的既定用法
+            sp.onSprite = S(UiBtnOn);
+            sp.offSprite = S(UiBtnWood);
+            sp.ppuMultiplier = UiPpu;
 
             rootGO.SetActive(false);
             return sp;
@@ -486,7 +537,8 @@ namespace LuminousSSS.EditorTools
             {
                 id = id,
                 displayName = label,
-                portrait = S("Portraits/" + portraitFile),
+                // 登录界面改用 V2 立绘：高 1024，正好能按 1:2 整数缩放显示（旧版 760 高只能做非整数缩放，会糊）
+                portrait = S("V2/Portraits/" + portraitFile),
                 worldSprite = S("Characters/" + worldFile),
             };
 
@@ -719,17 +771,105 @@ namespace LuminousSSS.EditorTools
             t.raycastTarget = false;
         }
 
-        static GameObject MakeButton(Transform parent, string name, string label, Vector2 centerPos, Vector2 size)
+        /// <summary>给文字加一圈描边，保证叠在木纹/羊皮纸上都读得清。</summary>
+        static void AddOutline(Graphic g, Color color, float dist)
         {
-            var img = CreateUI<Image>("BtnBg_" + name, parent, centerPos, size);
-            img.gameObject.name = name;
-            img.color = new Color(0.35f, 0.30f, 0.24f);
+            var o = g.gameObject.AddComponent<Outline>();
+            o.effectColor = color;
+            o.effectDistance = new Vector2(dist, -dist);
+        }
+
+        /// <summary>
+        /// 九宫格底板。像素 UI 素材必须走 Sliced，否则每种按钮宽度都得单独切一张图。
+        /// pixelsPerUnitMultiplier 做 PPU 补偿（素材 64 vs Canvas 100），让边框按素材原始像素 1:1 显示。
+        /// </summary>
+        static Image MakeSliced(string name, Transform parent, string spriteRel, Vector2 centerPos, Vector2 size)
+        {
+            var img = CreateUI<Image>(name, parent, centerPos, size);
+            img.sprite = S(spriteRel);
+            img.type = Image.Type.Sliced;
+            img.pixelsPerUnitMultiplier = UiPpu;
+            img.raycastTarget = false;
+            return img;
+        }
+
+        /// <summary>
+        /// 按钮四态：常态 / 悬停 / 按下 / 禁用。
+        /// 缺态是 UI 上线后最常见的返工点，这里一次性给全。
+        /// 颜色是「乘」到底板上的，所以主/次按钮共用一套，靠 Image.color 区分层级。
+        /// </summary>
+        static ColorBlock MakeButtonColors()
+        {
+            var c = ColorBlock.defaultColorBlock;
+            c.normalColor = Color.white;
+            c.highlightedColor = new Color(1f, 0.97f, 0.88f);
+            c.pressedColor = new Color(0.76f, 0.74f, 0.68f);
+            c.selectedColor = Color.white;
+            c.disabledColor = new Color(0.50f, 0.50f, 0.50f, 0.50f);
+            c.colorMultiplier = 1f;
+            c.fadeDuration = 0.08f;
+            return c;
+        }
+
+        static GameObject MakeButton(Transform parent, string name, string label, Vector2 centerPos, Vector2 size,
+                                     Color tint, string iconRel = null)
+        {
+            var img = MakeSliced(name, parent, UiBtnWood, centerPos, size);
+            img.raycastTarget = true;
+            img.color = tint;
+
             var btn = img.gameObject.AddComponent<Button>();
             btn.targetGraphic = img;
+            btn.colors = MakeButtonColors();
 
             var txt = CreateUI<Text>("Label", img.transform, new Vector2(size.x * 0.5f, size.y * 0.5f), size);
-            Style(txt, label, 40, TextAnchor.MiddleCenter, new Color(1f, 0.98f, 0.94f));
+            Style(txt, label, 36, TextAnchor.MiddleCenter, WoodTextColor);
+            AddOutline(txt, WoodTextOutline, 2f);
+
+            if (!string.IsNullOrEmpty(iconRel))
+            {
+                // 「图标 + 文字」整组居中：先估文字宽度，再把两者一起摆正
+                const float iconSize = 46f, gap = 20f;
+                float textW = EstimateTextWidth(label, 36);
+                float left = size.x * 0.5f - (iconSize + gap + textW) * 0.5f;
+
+                var icon = CreateUI<Image>("Icon", img.transform,
+                                           new Vector2(left + iconSize * 0.5f, size.y * 0.5f),
+                                           new Vector2(iconSize, iconSize));
+                icon.sprite = S(iconRel);
+                icon.preserveAspect = true;
+                icon.raycastTarget = false;
+
+                var trt = (RectTransform)txt.transform;
+                trt.anchoredPosition = new Vector2(left + iconSize + gap + textW * 0.5f, -size.y * 0.5f);
+            }
             return img.gameObject;
+        }
+
+        /// <summary>只有图标、没有文字的按钮（左右切换角色）。</summary>
+        static GameObject MakeIconButton(Transform parent, string name, string iconRel, Vector2 centerPos, Vector2 size)
+        {
+            var img = MakeSliced(name, parent, UiBtnWood, centerPos, size);
+            img.raycastTarget = true;
+
+            var btn = img.gameObject.AddComponent<Button>();
+            btn.targetGraphic = img;
+            btn.colors = MakeButtonColors();
+
+            var icon = CreateUI<Image>("Icon", img.transform, new Vector2(size.x * 0.5f, size.y * 0.5f), size * 0.5f);
+            icon.sprite = S(iconRel);
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+            return img.gameObject;
+        }
+
+        /// <summary>粗估一行文字的像素宽度：中日韩全角算 1 个字号，其余算 0.55 个。</summary>
+        static float EstimateTextWidth(string s, int fontSize)
+        {
+            float w = 0f;
+            foreach (char ch in s)
+                w += (ch > 0x2E80) ? fontSize : fontSize * 0.55f;
+            return w;
         }
 
         // ------------------------------------------------------------ Build Settings
