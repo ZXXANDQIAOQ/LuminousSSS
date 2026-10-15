@@ -19,6 +19,14 @@ namespace LuminousSSS
         public Text sfxStateText;
         public Button closeButton;
 
+        [Header("开关底板（可留空，留空则退回纯色方案）")]
+        [Tooltip("「开」用带黄框的选中态底板")]
+        public Sprite onSprite;
+        [Tooltip("「关」用普通木纹底板")]
+        public Sprite offSprite;
+        [Tooltip("九宫格 PPU 补偿系数，与 GameSceneBuilder.UiPpu 保持一致")]
+        public float ppuMultiplier = 100f / 64f;
+
         private static readonly Color OnColor = new Color(0.35f, 0.62f, 0.29f);
         private static readonly Color OffColor = new Color(0.45f, 0.42f, 0.38f);
 
@@ -67,13 +75,28 @@ namespace LuminousSSS
             SetToggle(sfxToggle, sfxStateText, sfxOn);
         }
 
-        private static void SetToggle(Button btn, Text label, bool on)
+        /// <summary>
+        /// 开关视觉：优先换底板（黄框选中态=开），底板没配时退回纯色方案。
+        /// 像素风底板上的木纹深浅本来就有变化，只靠 tint 区分开关不够醒目，换图更一眼可辨。
+        /// </summary>
+        private void SetToggle(Button btn, Text label, bool on)
         {
             if (label != null) label.text = on ? "开" : "关";
-            if (btn != null)
+            if (btn == null) return;
+
+            var img = btn.targetGraphic as Image;
+            if (img == null) return;
+
+            if (onSprite != null && offSprite != null)
             {
-                var img = btn.targetGraphic as Image;
-                if (img != null) img.color = on ? OnColor : OffColor;
+                img.sprite = on ? onSprite : offSprite;
+                img.type = Image.Type.Sliced;
+                img.pixelsPerUnitMultiplier = ppuMultiplier;
+                img.color = Color.white;
+            }
+            else
+            {
+                img.color = on ? OnColor : OffColor;
             }
         }
     }
