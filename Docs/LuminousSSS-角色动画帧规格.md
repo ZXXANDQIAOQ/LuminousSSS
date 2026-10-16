@@ -230,30 +230,28 @@ python3 Tools/check_walk_consistency.py Assets/Art/V2/Characters \
 
 ---
 
-## 7. ⚠️ 命名变更带来的集成缺口（必须先定，再画）
+## 7. ✅ 命名变更带来的集成缺口（v0.10 已解决）
 
-**现状**：`GameSceneBuilder.EnsureWitchAnimations()` → `EnsureWalkClip(dir)` 只做一件事——
-用 `v2_walk_{dir}_{01..06}.png` 生成 `witch_walk_{dir}.anim` 四个剪辑，
-交给唯一的 `WitchPlayerController`。**四个可玩角色共用这一套帧**（所以女巫现在走的是农夫的动作）。
+**原问题**：`EnsureWitchAnimations()` → `EnsureWalkClip(dir)` 只读 `v2_walk_{dir}_{01..06}.png`
+生成 `witch_walk_{dir}.anim` 四个剪辑，交给唯一的 `WitchPlayerController`；
+**四个可玩角色共用这一套帧**（女巫走的是农夫的动作）。按角色命名会因缺角色段而找不到文件。
 
-**要按角色区分，缺的不只是命名**：
+**v0.10 的解决办法（方案 A：命名带角色段 + 每角色独立资产）**：
 
-| 缺口 | 位置 | 说明 |
-|---|---|---|
-| 路径拼接要加角色段 | `GameSceneBuilder.EnsureWalkClip()` | 现写死 `v2_walk_{dir}_{i:00}.png`，需按角色拼 |
-| 剪辑要 ×4 | `Assets/Animations/` | 现有 4 个 `witch_walk_*.anim` → 需要 16 个（4 角色 × 4 方向） |
-| 控制器要 ×4 | 同上 | 现有 1 个 `WitchPlayerController` → 每角色一个，或一个控制器参数化 |
-| 按角色挂载 | `PlayerAppearance` / `CharacterAnimDriver` | 现有逻辑只认「女巫有动画、其余走 flipX+bob」，需改成按 characterId 选剪辑 |
+| 原缺口 | 落地方式 |
+|---|---|
+| 路径拼接要加角色段 | 新增 `WalkChars` 表与 `WalkClipPathOf(key,dir)` / `CtrlPathOf(pascal)`，按角色拼路径 |
+| 剪辑要 ×4 | `EnsureCharacterAnim(key,label)` 每角色生成 4 个行走剪辑 + 1 个待机剪辑（无专属 idle 素材时用「向下走」首帧做静态待机，避免原地踏步） |
+| 控制器要 ×4 | `EnsureCharacterControllers()` 每角色一个 `{Pascal}PlayerController.controller`，状态机结构不变（Idle + 四方向 + 20 条过渡） |
+| 按角色挂载 | `CtrlOf(characterId)` 写进 `PlayerAppearance.Entry.controller`；`CharacterAnimDriver` 原有「有 controller 走动画、无则 flipX + bob」逻辑直接复用 |
+| 缺帧角色的过期控制器 | `EnsureCharacterControllers()` 会**清理**素材不全却已存在的控制器（上一版遗留的 `WitchPlayerController` 就属于这种），避免挂上引用过期剪辑的控制器 |
 
-> 这几项**都不在《第二批需求》§八「交付后的工程侧处理」里**，但缺了动画就接不上。
-> 建议：**先定命名与剪辑组织方式，再让美术动笔**，否则 96 帧画完还要再谈一轮。
+**落地后的行为**：
 
-**两个可选方案**：
+- 现有 24 张已重命名为 `v2_walk_farmer_*` → **农夫**用上自己的四方向动画；
+- **雨女 / 冒险者 / 女巫**暂无帧 → 无控制器 → 走静态图 + 走路小跳（女巫从此不再"借用农夫的动作"）；
+- 任一角色帧交付后，把文件按前缀放进 `Assets/Art/V2/Characters/` 再跑一次一键生成即可上线，
+  其余角色不受影响。
 
-- **A（推荐）**：命名带角色段 → 按角色生成 4 套剪辑 + 4 个控制器。
-  改动量中等，但这是「4 个角色各自有独立动作」唯一干净的做法。
-- **B（省事但受限）**：沿用无角色段的命名，做成「按当前角色整组替换 24 张图」。
-  代码改动最小，但**同一时刻只能存在一个角色的行走图**，无法支持后续 NPC。
-
-> 连带提醒：**改 `GameSceneBuilder.cs` 属于引擎侧改动**，不在我的职责范围（我不写引擎运行时代码），
-> 建议交给 `cocos-engine-expert`；我这边负责素材规格、归一与校验。
+> 素材侧仍未完成的是**插画本体**（四个角色的 24 帧 + 女巫立绘），
+> 规格 / 归一 / 一致性闸门 / 硬边校验已全部就绪，交付即可入库。

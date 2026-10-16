@@ -20,11 +20,49 @@ namespace LuminousSSS.EditorTools
         const string Art = "Assets/Art/";
         const string AudioDir = "Assets/Audio/";
         const string AnimDir = "Assets/Animations/";
-        const string WitchCtrlPath = AnimDir + "WitchPlayerController.controller";
         const string WitchIdleSprite = "V2/Characters/v2_witch_idle.png";
         const string WitchIdleBobSprite = "V2/Characters/v2_witch_idle_bob.png";
         const string TilesDir = "Assets/Tiles";
         const string ScenesDir = "Assets/Scenes";
+
+        /// <summary>
+        /// 可玩角色的行走素材命名段（方案 A：命名带角色段，每角色独立剪辑 + 控制器）。
+        ///
+        /// 素材约定：v2_walk_{Key}_{dir}_{01..06}.png
+        /// 生成产物：{Key}_walk_{dir}.anim（4 个）+ {Key}_idle.anim + {Pascal}PlayerController.controller
+        ///
+        /// 缺帧的角色会被跳过（生成器 warning），该角色在游戏里由 CharacterAnimDriver 走
+        /// flipX + bob 兜底 —— 所以四个角色可以陆续交付，不影响已交付的角色。
+        /// </summary>
+        static readonly (string Id, string Key, string Pascal, string Label)[] WalkChars =
+        {
+            ("001", "farmer",     "Farmer",     "农夫"),
+            ("002", "rain",       "Rain",       "雨女"),
+            ("003", "adventurer", "Adventurer", "冒险者"),
+            ("004", "witch",      "Witch",      "女巫"),
+        };
+
+        static string CtrlPathOf(string pascal) => AnimDir + pascal + "PlayerController.controller";
+        static string IdleClipPathOf(string key) => AnimDir + key + "_idle.anim";
+        static string WalkClipPathOf(string key, string dir) => AnimDir + key + "_walk_" + dir + ".anim";
+
+        /// <summary>取某角色 id 的动画控制器（该角色缺帧、控制器未生成时返回 null）。</summary>
+        static RuntimeAnimatorController CtrlOf(string id)
+        {
+            foreach (var c in WalkChars)
+                if (c.Id == id) return A<RuntimeAnimatorController>(CtrlPathOf(c.Pascal));
+            return null;
+        }
+
+        /// <summary>
+        /// 场景内小人的静态立绘：优先用该角色 V2 行走帧的首帧（与动画帧同尺寸同 PPU，
+        /// 避免「静止一尺寸、走动另一尺寸」的跳变）；素材未交付时退回旧版小图。
+        /// </summary>
+        static Sprite WorldSpriteOf(string key, string fallbackRel)
+        {
+            var v2 = S($"V2/Characters/v2_walk_{key}_down_01.png");
+            return v2 != null ? v2 : S(fallbackRel);
+        }
 
         // ------------------------------------------------------------ UI 素材
         // 登录界面全部使用 Art/V2/UI 下现成的像素 UI 素材，不再用纯色方块拼。
@@ -79,7 +117,8 @@ namespace LuminousSSS.EditorTools
 
             EnsureFolders();
             EnsureTiles();
-            EnsureWitchController();
+            EnsureCharacterAnimations();     // 剪辑：每角色 idle + 四方向行走（缺帧的角色跳过）
+            EnsureCharacterControllers();    // 控制器：每角色一个四方向状态机
             BuildLoginScene();
             BuildFarmScene();
             RegisterBuildScenes();
@@ -136,46 +175,58 @@ namespace LuminousSSS.EditorTools
             return tile;
         }
 
-        // ------------------------------------------------------------ 女巫动画资产
-        // 旧版 witch_idle / witch_walk_down 引用的 sprite GUID 已不在仓库中（悬空引用，
-        // 播放时 SpriteRenderer 会被动画置空）。这里用 V2/Characters 下现成的素材
-        // 整体重写：idle 两帧循环 + 四方向各 6 帧行走（文件名保持不变，场景里的
-        // 引用不会断）。
-        static void EnsureWitchAnimations()
+        // ------------------------------------------------------------ 角色动画资产
+        // 按角色生成：每角色 4 个行走剪辑 + 1 个待机剪辑 + 1 个控制器。
+        // 素材缺失的角色会被跳过（警告），由 CharacterAnimDriver 的 flipX + bob 兜底。
+        //
+        // 历史：旧版所有角色共用一套 v2_walk_{dir}_{nn}.png（内容是农夫形象），
+        // 女巫走的是农夫的动作。v0.10 起按角色分段命名（v2_walk_{key}_{dir}_{nn}.png），
+        // 现有那 24 张已重命名为 v2_walk_farmer_*，回归农夫。
+        static void EnsureCharacterAnimations()
         {
-            // 待机：idle + 呼吸 bob 两帧循环
-            var idleFrames = new[]
+            int ok = 0, skipped = 0;
+            foreach (var c in WalkChars)
             {
-                S("V2/Characters/v2_witch_idle.png"),
-                S("V2/Characters/v2_witch_idle_bob.png"),
-            };
-            if (idleFrames[0] == null || idleFrames[1] == null)
-            {
-                Debug.LogWarning("[LuminousSSS] 缺少女巫待机帧（v2_witch_idle / v2_witch_idle_bob）。");
+                if (EnsureCharacterAnim(c.Key, c.Label)) ok++;
+                else skipped++;
             }
-            else
-            {
-                WriteSpriteClip(AnimDir + "witch_idle.anim", idleFrames, 2f);
-            }
-
-            // 行走：四方向各 6 帧（v2_walk_down/up/left/right_01..06）
-            foreach (var dir in new[] { "down", "up", "left", "right" })
-                EnsureWalkClip(dir);
+            Debug.Log($"[LuminousSSS] 角色动画：{ok} 个角色已生成剪辑，{skipped} 个因缺帧跳过（走 bob 兜底）。");
         }
 
-        static void EnsureWalkClip(string dir)
+        /// <summary>生成单个角色的 idle + 4 方向行走剪辑。素材不全时返回 false 且不生成任何剪辑。</summary>
+        static bool EnsureCharacterAnim(string key, string label)
         {
-            var frames = new Sprite[6];
-            for (int i = 0; i < 6; i++)
+            // 先整体检查四方向素材，缺任何一个就整角色跳过（避免生成半套动画）
+            var walk = new Dictionary<string, Sprite[]>();
+            foreach (var dir in new[] { "down", "up", "left", "right" })
             {
-                frames[i] = S($"V2/Characters/v2_walk_{dir}_{i + 1:00}.png");
-                if (frames[i] == null)
+                var frames = new Sprite[6];
+                for (int i = 0; i < 6; i++)
                 {
-                    Debug.LogWarning($"[LuminousSSS] 缺少行走帧: V2/Characters/v2_walk_{dir}_{i + 1:00}.png");
-                    return;
+                    string rel = $"V2/Characters/v2_walk_{key}_{dir}_{i + 1:00}.png";
+                    frames[i] = S(rel);
+                    if (frames[i] == null)
+                    {
+                        Debug.Log($"[LuminousSSS] {label} 缺行走帧 {rel} —— 该角色暂用 flipX + bob 兜底。");
+                        return false;
+                    }
                 }
+                walk[dir] = frames;
             }
-            WriteSpriteClip(AnimDir + $"witch_walk_{dir}.anim", frames, 8f);
+
+            foreach (var kv in walk)
+                WriteSpriteClip(WalkClipPathOf(key, kv.Key), kv.Value, 8f);
+
+            // 待机：有专属 idle 素材（如女巫 idle + bob 两帧）就呼吸循环，
+            // 否则拿「向下走」第 1 帧做静态待机（不是循环行走，避免原地踏步）
+            var idleA = S($"V2/Characters/v2_{key}_idle.png");
+            var idleB = S($"V2/Characters/v2_{key}_idle_bob.png");
+            if (idleA != null && idleB != null)
+                WriteSpriteClip(IdleClipPathOf(key), new[] { idleA, idleB }, 2f);
+            else
+                WriteSpriteClip(IdleClipPathOf(key), new[] { walk["down"][0] }, 1f);
+
+            return true;
         }
 
         /// <summary>
@@ -206,32 +257,56 @@ namespace LuminousSSS.EditorTools
             else EditorUtility.SetDirty(clip);
         }
 
-        // ------------------------------------------------------------ 女巫动画控制器
-        // 四方向状态机：Idle + WalkDown/Up/Left/Right。
+        // ------------------------------------------------------------ 角色动画控制器
+        // 四方向状态机：Idle + WalkDown/Up/Left/Right，**每个角色一个控制器**。
         // 参数由 CharacterAnimDriver 每帧写入（PlayerController 记录的朝向是主轴
         // 单位向量，所以 MoveX/MoveY 同一时刻只有一个非零）：
         //   Speed  0/1   是否在移动
         //   MoveX -1/0/1 主轴朝向（水平优先）
         //   MoveY -1/0/1 主轴朝向
         // 旧版只有 Idle/Walk 两个状态、FacingUp 是死参数，这里幂等重建。
-        static void EnsureWitchController()
+        static void EnsureCharacterControllers()
         {
-            EnsureWitchAnimations();
-
-            var idle = A<AnimationClip>(AnimDir + "witch_idle.anim");
-            var walkDown = A<AnimationClip>(AnimDir + "witch_walk_down.anim");
-            var walkUp = A<AnimationClip>(AnimDir + "witch_walk_up.anim");
-            var walkLeft = A<AnimationClip>(AnimDir + "witch_walk_left.anim");
-            var walkRight = A<AnimationClip>(AnimDir + "witch_walk_right.anim");
-            if (idle == null || walkDown == null || walkUp == null || walkLeft == null || walkRight == null)
+            int ok = 0, cleaned = 0;
+            foreach (var c in WalkChars)
             {
-                Debug.LogWarning("[LuminousSSS] 行走动画剪辑不完整，跳过控制器生成。");
-                return;
+                if (EnsureCharacterController(c.Key, c.Pascal, c.Label))
+                {
+                    ok++;
+                    continue;
+                }
+
+                // 素材不全（如女巫还没交付帧）却存在旧控制器 —— 上一版遗留的控制器引用的是
+                // 过期的剪辑（女巫曾借用农夫帧）。必须删掉，否则运行时会被挂上，
+                // 导致角色播放别人的动作。删掉后该角色由 CharacterAnimDriver 走 flipX + bob。
+                string stale = CtrlPathOf(c.Pascal);
+                if (AssetDatabase.LoadAssetAtPath<AnimatorController>(stale) != null)
+                {
+                    AssetDatabase.DeleteAsset(stale);
+                    cleaned++;
+                    Debug.Log($"[LuminousSSS] {c.Label} 素材不全，已清理过期控制器：{stale}");
+                }
+            }
+            Debug.Log($"[LuminousSSS] 角色控制器：{ok}/{WalkChars.Length} 个已就绪，"
+                      + $"清理过期 {cleaned} 个（缺帧的角色走 flipX + bob 兜底）。");
+        }
+
+        /// <summary>为单个角色生成四方向状态机控制器。剪辑不全时返回 false（不建控制器）。</summary>
+        static bool EnsureCharacterController(string key, string pascal, string label)
+        {
+            var idle = A<AnimationClip>(IdleClipPathOf(key));
+            var clips = new Dictionary<string, AnimationClip>();
+            foreach (var dir in new[] { "down", "up", "left", "right" })
+            {
+                var clip = A<AnimationClip>(WalkClipPathOf(key, dir));
+                if (idle == null || clip == null) return false;
+                clips[dir] = clip;
             }
 
-            var ctrl = AssetDatabase.LoadAssetAtPath<AnimatorController>(WitchCtrlPath);
+            string ctrlPath = CtrlPathOf(pascal);
+            var ctrl = AssetDatabase.LoadAssetAtPath<AnimatorController>(ctrlPath);
             if (ctrl == null)
-                ctrl = AnimatorController.CreateAnimatorControllerAtPath(WitchCtrlPath);
+                ctrl = AnimatorController.CreateAnimatorControllerAtPath(ctrlPath);
 
             EnsureParam(ctrl, "Speed", AnimatorControllerParameterType.Float);
             EnsureParam(ctrl, "MoveX", AnimatorControllerParameterType.Float);
@@ -254,10 +329,10 @@ namespace LuminousSSS.EditorTools
             var sUp = FindState(sm, "WalkUp") ?? sm.AddState("WalkUp");
             var sLeft = FindState(sm, "WalkLeft") ?? sm.AddState("WalkLeft");
             var sRight = FindState(sm, "WalkRight") ?? sm.AddState("WalkRight");
-            sDown.motion = walkDown;
-            sUp.motion = walkUp;
-            sLeft.motion = walkLeft;
-            sRight.motion = walkRight;
+            sDown.motion = clips["down"];
+            sUp.motion = clips["up"];
+            sLeft.motion = clips["left"];
+            sRight.motion = clips["right"];
             foreach (var s in new[] { sDown, sUp, sLeft, sRight })
                 s.transitions = new AnimatorStateTransition[0];
 
@@ -297,7 +372,8 @@ namespace LuminousSSS.EditorTools
                 }
 
             EditorUtility.SetDirty(ctrl);
-            Debug.Log("[LuminousSSS] 女巫 AnimatorController 已就绪（Idle + 四方向行走）：" + WitchCtrlPath);
+            Debug.Log($"[LuminousSSS] {label} 动画控制器已就绪（Idle + 四方向行走）：{ctrlPath}");
+            return true;
         }
 
         static void AddTrans(AnimatorState from, AnimatorState to, float duration,
@@ -672,13 +748,14 @@ namespace LuminousSSS.EditorTools
             visual.transform.SetParent(player.transform, false);
             visual.transform.localPosition = new Vector3(0f, 0.75f, 0f);
             var sr = visual.GetComponent<SpriteRenderer>();
-            sr.sprite = S("Characters/char_001_farmer.png");
+            sr.sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png");
             sr.sortingOrder = 10;
 
-            // 动画：默认静态角色先停用，选了女巫时由 PlayerAppearance 启用
+            // 动画：先停用，由 PlayerAppearance 按所选角色启用对应控制器。
+            // 每个角色都有自己的控制器（见 EnsureCharacterControllers），
+            // 缺帧的角色 controller 为 null → CharacterAnimDriver 走 flipX + bob 兜底。
             var anim = visual.GetComponent<Animator>();
-            var witchCtrl = A<RuntimeAnimatorController>(WitchCtrlPath);
-            anim.runtimeAnimatorController = witchCtrl;
+            anim.runtimeAnimatorController = CtrlOf("001");
             anim.enabled = false;
 
             var cc = player.GetComponent<CircleCollider2D>();
@@ -686,7 +763,7 @@ namespace LuminousSSS.EditorTools
             cc.offset = new Vector2(0f, 0.45f);
 
             // CharacterAnimDriver 自己会在子物体里找 SpriteRenderer / Animator / PlayerController：
-            // 女巫（有 controller）走四方向动画；静态角色走 flipX + 走路小跳。
+            // 有 controller 的角色走四方向动画；无 controller 的走 flipX + 走路小跳。
             var driver = player.GetComponent<CharacterAnimDriver>();
             driver.bobHeight = 0.06f;   // 约 4 像素（V2 素材 64 PPU）
             driver.bobFrequency = 8f;
@@ -696,10 +773,13 @@ namespace LuminousSSS.EditorTools
             pa.animator = anim;
             pa.entries = new[]
             {
-                new PlayerAppearance.Entry { id = "001", sprite = S("Characters/char_001_farmer.png") },
-                new PlayerAppearance.Entry { id = "002", sprite = S("Characters/char_002_rain_maiden.png") },
-                new PlayerAppearance.Entry { id = "003", sprite = S("Characters/char_003_adventurer.png") },
-                new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = witchCtrl },
+                new PlayerAppearance.Entry { id = "001", sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png"),
+                                             controller = CtrlOf("001") },
+                new PlayerAppearance.Entry { id = "002", sprite = WorldSpriteOf("rain", "Characters/char_002_rain_maiden.png"),
+                                             controller = CtrlOf("002") },
+                new PlayerAppearance.Entry { id = "003", sprite = WorldSpriteOf("adventurer", "Characters/char_003_adventurer.png"),
+                                             controller = CtrlOf("003") },
+                new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = CtrlOf("004") },
             };
 
             // Y 轴动态排序（与物件烘焙公式一致：MapH * 10 - y * 10）
