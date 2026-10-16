@@ -38,8 +38,18 @@ namespace LuminousSSS.EditorTools
             { "v2_ui_dialog_panel",      new Vector4(26, 26, 26, 26) },
             // 同上的纵向版（1411x1411），供接近方形的容器使用
             { "v2_ui_dialog_panel_tall", new Vector4(26, 26, 26, 26) },
-            { "v2_ui_slot_empty",        new Vector4(14, 14, 14, 14) },
+            // v0.8 重绘：圆角 10 + 木框 4 + 内凹区自 14px 起 -> 取 16
+            { "v2_ui_slot_empty",        new Vector4(16, 16, 16, 16) },
             { "v2_ui_slot_item",         new Vector4(14, 14, 14, 14) },
+
+            // ---- v0.8 新增：素材补全批次（全部为硬边重绘，边界按「圆角 + 木框 + 铆钉」算）----
+            { "v2_ui_slot_selected",     new Vector4(16, 16, 16, 16) },  // 与 slot_empty 同几何，保证叠放不跳位
+            { "v2_ui_panel_inventory",   new Vector4(20, 20, 20, 20) },  // 圆角 14 + 木框 12 + 铆钉至 8，取 20 留 6
+            { "v2_ui_tooltip_panel",     new Vector4(18, 18, 18, 18) },  // 圆角 12 + 木框 10
+            { "v2_ui_dialog_bubble",     new Vector4(28, 28, 28, 28) },  // 圆角 22，四者中最圆
+            { "v2_ui_currency_plate",    new Vector4(12, 12, 12, 12) },  // 圆角 10
+            { "v2_ui_stamina_bg",        new Vector4(6, 6, 6, 6) },      // 圆角 3×2
+            { "v2_ui_stamina_fill",      new Vector4(6, 6, 6, 6) },      // 必须与底槽同值，否则长度对不齐
         };
 
         /// <summary>按 Canvas referencePixelsPerUnit 导入的全屏底图（否则会被放大 1.5625 倍）。</summary>

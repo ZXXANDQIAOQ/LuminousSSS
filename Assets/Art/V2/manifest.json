@@ -6,7 +6,8 @@
   },
   "nature": 13,
   "buildings": 9,
-  "items": 15,
-  "ui": 16,
+  "items": 28,
+  "ui": 38,
+  "fx": 15,
   "walk_frames": 24
 }
