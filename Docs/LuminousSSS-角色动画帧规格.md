@@ -118,23 +118,29 @@
 
 ---
 
-## 4. 归一脚本（已经把现有 24 帧修好了）
+## 4. 归一脚本（现有 24 帧已就地归一，抖动已消除）
 
 `Tools/normalize_walk_frames.py` —— 把任意尺寸的行走帧统一到 64×112，脚底对齐到 y=109。
 
 ```bash
-# 校验（不改文件）
+# 校验（不改文件，退出码 0 = 全合规）
 python3 Tools/normalize_walk_frames.py Assets/Art/V2/Characters --check
 
-# 归一输出到新目录
-python3 Tools/normalize_walk_frames.py Assets/Art/V2/Characters --out Assets/Art/V2/Characters_norm
+# 归一（先输出到临时目录核对，再覆盖）
+python3 Tools/normalize_walk_frames.py Assets/Art/V2/Characters --out /tmp/walk_norm
+cp /tmp/walk_norm/*.png Assets/Art/V2/Characters/
 ```
 
-**本次实跑结果**：
+**注意：本项目已采用「就地覆盖」**（`Characters/` 即归一后的帧），
+不再使用 `Characters_norm/` 双份目录 —— 代码 `GameSceneBuilder.cs` 引用的是
+`V2/Characters/v2_walk_*`，就地覆盖可让代码零改动；原图在 git 历史里可随时回滚；
+`.meta` 不动所以场景引用不会断。
+
+**本次实跑结果**（v0.9 已落地）：
 
 ```
 画布 64x112 ｜ 脚底基线 y=109（底部留 2 px）
-全部合规：24 帧统一到 64x112，脚底同在 y=109
+全部合规：24 帧统一到 64x112，脚底同在 y=109   ← --check 退出码 0
 ```
 
 **它做了什么**：按 alpha 包围盒裁出主体 → 水平居中到画布中线 → 底边贴到基线 → 其余补透明。
@@ -146,10 +152,28 @@ python3 Tools/normalize_walk_frames.py Assets/Art/V2/Characters --out Assets/Art
 **重画流程建议**：
 
 1. 先跑一次 `--check`，确认当前状态；
-2. 重画的新帧（无论什么尺寸）丢进同一个目录；
-3. 跑归一，输出到 `Characters_norm/`；
+2. 重画的新帧（无论什么尺寸）丢进 `Assets/Art/V2/Characters/`；
+3. 跑归一输出到临时目录 → 核对 → 覆盖回 `Characters/`；
 4. 再跑 `--check` 验收 —— **退出码 0 才算过**；
 5. 人工并排看 16 帧，确认特征一致（脚本查不了这个）。
+
+### 4.1 配套：图标归一是同一思路的另一种应用
+
+`Tools/normalize_icons.py`（v0.9 新增）—— 行走帧统一「画布 + 基线」，图标统一「画布 + 内容长边」：
+
+```bash
+# 背包图标：128×128 画布，内容长边 96
+python3 Tools/normalize_icons.py Assets/Art/V2/Items --canvas 128x128 --content 96 \
+    --only "v2_item_axe,v2_item_pickaxe,..." --out /tmp/icon_norm
+
+# 场景作物：64×64 画布（=1 tile），内容长边 56 且不放大（保持像素密度）
+python3 Tools/normalize_icons.py Assets/Art/V2/Items --canvas 64x64 --content 56 \
+    --no-upscale --prefix v2_item_crop_growth_ --out /tmp/icon_norm
+```
+
+> 图标**允许缩放**（与行走帧相反）：因为图标显示尺寸远小于原图，
+> 缩放本来就会发生，离线用 NEAREST 做比运行时缩放更可控；
+> 而行走帧是场景内 1:1 显示的，缩放会破坏像素密度，所以只重排不缩放。
 
 ---
 
@@ -174,10 +198,11 @@ python3 Tools/normalize_walk_frames.py Assets/Art/V2/Characters --out Assets/Art
 
 | 项 | 判定方法 | 状态 |
 |---|---|---|
-| 画布统一 64×112 | `normalize_walk_frames.py --check` | ✅ 现有 24 帧已通过 |
-| 脚底同在 y=109 | 同上 | ✅ |
+| 画布统一 64×112 | `normalize_walk_frames.py --check` | ✅ 已就地落地（v0.9，`Characters/` 即归一后帧） |
+| 脚底同在 y=109 | 同上 | ✅ 已落地 |
 | 水平居中（中线偏移 ≤1px） | 同上 | ✅ |
 | 每方向 4 帧 | 数文件 | ⚠️ 现有是 6 帧，**重画时改 4 帧** |
 | 16 帧特征一致 | **人工并排看** | ⚠️ 现有 up 方向 6 帧戴草帽，需重画 |
-| 女巫立绘 1024 高 | 读尺寸 | ❌ 缺失 |
+| 女巫立绘 1024 高 | 读尺寸 | ❌ 缺失（第二批需求） |
 | 硬边（半透明 = 0） | `Tools/verify_hardedge.py` | ⚠️ 现有行走帧平均 17.2%，需重导 |
+| 图标画布统一 | `normalize_icons.py --check` | ✅ 已就地落地（v0.9：11 张背包图标 128×128 / 4 张场景作物 64×64） |
