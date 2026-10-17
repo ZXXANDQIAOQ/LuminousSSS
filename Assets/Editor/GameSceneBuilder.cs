@@ -164,6 +164,22 @@ namespace LuminousSSS.EditorTools
             Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/FarmScene.scene（登录场景未动）。");
         }
 
+        /// <summary>
+        /// 只重建登录场景（补充 AutoBuildScenes 的对称缺口）。
+        /// 原先「缺登录、农场在」的分支调的是 <see cref="OneClick"/>，而 OneClick → BuildAll
+        /// 会把已存在的 FarmScene 一并重建，与「绝不重建已存在的场景」的承诺相反。
+        /// 登录场景只依赖 UI 素材与立绘，不需要 tile / 动画 / 控制器。
+        /// </summary>
+        internal static void BuildLoginSceneOnly()
+        {
+            EnsureFolders();
+            BuildLoginScene();
+            RegisterBuildScenes();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/LoginScene.scene（农场场景未动）。");
+        }
+
         static void EnsureFolders()
         {
             foreach (var d in new[] { "Assets/Art", "Assets/Tiles", "Assets/Scripts", ScenesDir })
@@ -958,9 +974,11 @@ namespace LuminousSSS.EditorTools
 
             // 持久监听：运行时 onClick.AddListener 不会被序列化，保存场景后丢失，
             // 必须用 UnityEventTools 写进 m_OnClick.m_PersistentCalls。
+            // 用 AddVoidPersistentListener（无参 void 方法的追加式重载）—— 
+            // RegisterPersistentListener 只有 (UnityEvent, int, UnityAction) 这个 3 参版本，没有「目标+方法名」的 4 参重载。
             var chopDriver = chopGO.GetComponent<ChopButtonDriver>();
-            UnityEventTools.RegisterPersistentListener(
-                chopBtn.onClick, 0, chopDriver, nameof(ChopButtonDriver.OnClickChop));
+            UnityEventTools.AddVoidPersistentListener(
+                chopBtn.onClick, chopDriver.OnClickChop);
         }
 
         /// <summary>锚点与轴心都取 (0.5,0.5) 的 UI 元素 —— 相对父节点居中。</summary>

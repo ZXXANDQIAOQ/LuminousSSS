@@ -63,8 +63,10 @@ namespace LuminousSSS.EditorTools
             }
             else
             {
-                Debug.Log("[LuminousSSS] 检测到登录场景缺失，自动补建 LoginScene……");
-                GameSceneBuilder.OneClick();
+                // 走 BuildLoginSceneOnly，不能用 OneClick —— 后者是 BuildAll，
+                // 会把已存在的 FarmScene 一起重建掉。
+                Debug.Log("[LuminousSSS] 检测到登录场景缺失，自动补建 LoginScene（农场场景未动）……");
+                GameSceneBuilder.BuildLoginSceneOnly();
             }
         }
     }

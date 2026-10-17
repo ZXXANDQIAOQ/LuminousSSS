@@ -98,7 +98,7 @@ namespace LuminousSSS
             if (HitsLeft > 0)
             {
                 if (!_shaking) StartCoroutine(ShakeRoutine());
-                AudioManager.Instance?.PlayChop();
+                AudioManager.PlayChop();   // 静态入口，内部自带 Instance 判空
                 return false;
             }
 
@@ -157,7 +157,7 @@ namespace LuminousSSS
                 _sr.enabled = false;   // 不留桩：整棵消失
             }
 
-            if (playFeedback) AudioManager.Instance?.PlayChop();
+            if (playFeedback) AudioManager.PlayChop();   // 静态入口，内部自带 Instance 判空
             MarkChopped(treeId);
         }
 
