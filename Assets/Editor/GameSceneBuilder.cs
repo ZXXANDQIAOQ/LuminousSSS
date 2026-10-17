@@ -76,6 +76,9 @@ namespace LuminousSSS.EditorTools
         const string UiArrowLeft = UiRoot + "v2_ui_icon_arrow_left.png";
         const string UiArrowRight = UiRoot + "v2_ui_icon_arrow_right.png";
         const string UiPortraitShadow = UiRoot + "v2_ui_portrait_shadow.png"; // 立绘脚下投影
+        // 农场 HUD 的虚拟摇杆（Tools/gen_ui_joystick.py 程序化生成）
+        const string UiJoystickBase = UiRoot + "v2_ui_joystick_base.png";      // 空心木纹底圈
+        const string UiJoystickKnob = UiRoot + "v2_ui_joystick_knob.png";      // 实心木纹摇杆头
 
         /// <summary>
         /// 九宫格边界的 PPU 补偿系数。
@@ -98,6 +101,13 @@ namespace LuminousSSS.EditorTools
         const int PathLeft = 29;             // 土路两列（木屋门口 -> 底部出口）
         const int PathTop = 14;
         const float HouseDoorX = 30f;        // 木屋门（底部中心）的世界 x
+
+        // ---- 农场 HUD（虚拟摇杆）
+        // 尺寸与素材 1:1（gen_ui_joystick.py 出 288 / 128），Point 过滤下不会出现非整数缩放毛边
+        const float JoystickTouchSize = 480f;   // 触摸热区边长（隐形，比底圈大一圈，手指不用瞄准）
+        const float JoystickBaseSize = 288f;    // 底圈显示尺寸
+        const float JoystickKnobSize = 128f;    // 摇杆头显示尺寸
+        const float JoystickInset = 40f;        // 距屏幕左 / 下边缘
 
         static Sprite S(string rel) => AssetDatabase.LoadAssetAtPath<Sprite>(Art + rel);
         static T A<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(path);
@@ -643,6 +653,9 @@ namespace LuminousSSS.EditorTools
 
             EnsureAudioManager();
 
+            // 农场场景原本没有任何 Canvas —— 手机端因此拿不到任何移动输入（v0.10 的已知缺陷）。
+            BuildFarmHud();
+
             // ---- 地面 Tilemap
             var gridGO = new GameObject("Grid", typeof(Grid));
             var tmGO = new GameObject("Ground", typeof(Tilemap), typeof(TilemapRenderer));
@@ -796,6 +809,81 @@ namespace LuminousSSS.EditorTools
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.scene");
+        }
+
+        /// <summary>
+        /// 农场场景的 HUD 层（Canvas + EventSystem + 虚拟摇杆）。
+        ///
+        /// 为什么必须单独建：农场场景在 v0.10 之前**完全没有 Canvas 也没有 EventSystem**，
+        /// 移动全靠键盘轴，安卓包里既没有按键也收不到指针事件 —— 玩家在手机上无法移动。
+        ///
+        /// Canvas 规范与登录界面完全一致（1920×1080、matchWidthOrHeight = 1.0 按高度适配），
+        /// 摇杆锚定左下角，因此在 16:9 / 21:9 / 4:3 下都贴角不跑位。
+        /// 后续的背包 / 体力条按 Docs/LuminousSSS-UI规格.md 的「层 2 HUD」加在这里。
+        /// </summary>
+        static void BuildFarmHud()
+        {
+            var canvasGO = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+            var canvas = canvasGO.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+            canvas.sortingOrder = 100;                       // HUD 永远压在场景之上
+
+            var scaler = canvasGO.GetComponent<CanvasScaler>();
+            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+            scaler.referenceResolution = new Vector2(1920, 1080);
+            scaler.screenMatchMode = CanvasScaler.ScreenMatchMode.MatchWidthOrHeight;
+            scaler.matchWidthOrHeight = 1.0f;
+            canvasGO.AddComponent<UIFontFixer>();
+
+            // 没有 EventSystem 就收不到任何指针 / 触摸事件，摇杆会「看得见按不动」
+            new GameObject("EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
+
+            var root = canvasGO.transform;
+
+            // ---- 触摸热区：一张全透明 Image。alpha=0 不影响射线拾取，
+            //      所以它不可见但能接住指针事件，比底圈大一圈，手指不用瞄准圆环。
+            var areaGO = new GameObject("Joystick", typeof(RectTransform), typeof(Image), typeof(VirtualJoystick));
+            areaGO.transform.SetParent(root, false);
+            var area = areaGO.GetComponent<RectTransform>();
+            area.anchorMin = area.anchorMax = new Vector2(0f, 0f);   // 锚定左下角
+            area.pivot = new Vector2(0.5f, 0.5f);
+            area.sizeDelta = new Vector2(JoystickTouchSize, JoystickTouchSize);
+            area.anchoredPosition = new Vector2(JoystickInset + JoystickTouchSize * 0.5f,
+                                                JoystickInset + JoystickTouchSize * 0.5f);
+            var hit = areaGO.GetComponent<Image>();
+            hit.color = new Color(1f, 1f, 1f, 0f);
+            hit.raycastTarget = true;
+
+            // ---- 底圈（空心环，几乎不遮农场画面）
+            var baseImg = CreateCentered<Image>("Base", area, new Vector2(JoystickBaseSize, JoystickBaseSize));
+            baseImg.sprite = S(UiJoystickBase);
+            baseImg.preserveAspect = true;
+            baseImg.raycastTarget = false;
+
+            // ---- 摇杆头：热区的轴心在 (0.5,0.5)，所以 anchoredPosition 就是「相对底圈圆心的偏移」，
+            //      正好等于 VirtualJoystick 算出来的 local 向量，不用再做任何坐标换算。
+            var knobImg = CreateCentered<Image>("Knob", area, new Vector2(JoystickKnobSize, JoystickKnobSize));
+            knobImg.sprite = S(UiJoystickKnob);
+            knobImg.preserveAspect = true;
+            knobImg.raycastTarget = false;
+
+            var joy = areaGO.GetComponent<VirtualJoystick>();
+            joy.knob = knobImg.rectTransform;
+            joy.radius = JoystickBaseSize * 0.5f;       // 底圈半径 = 行程基准
+            joy.knobRadius = JoystickKnobSize * 0.5f;   // 可用行程 = 144 - 64 = 80 UI 像素
+        }
+
+        /// <summary>锚点与轴心都取 (0.5,0.5) 的 UI 元素 —— 相对父节点居中。</summary>
+        static T CreateCentered<T>(string name, Transform parent, Vector2 size) where T : Graphic
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(T));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = size;
+            rt.anchoredPosition = Vector2.zero;
+            return go.GetComponent<T>();
         }
 
         /// <summary>

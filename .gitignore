@@ -49,6 +49,8 @@ ignore.conf
 *.unitypackage
 *.app
 /[Ee]xported[Oo]bj/
+# 本地出包目录（与 /Builds/ 同性质；只忽略根目录这一层）
+/[Oo]ut[Pp]ut/
 crashlytics-build.properties
 
 # ===================== 操作系统 =====================

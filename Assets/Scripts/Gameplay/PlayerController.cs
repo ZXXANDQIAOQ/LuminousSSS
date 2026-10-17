@@ -3,7 +3,8 @@ using UnityEngine;
 namespace LuminousSSS
 {
     /// <summary>
-    /// 场景内玩家移动。WASD / 方向键，正俯视小人。
+    /// 场景内玩家移动。输入来自 <see cref="MoveInput"/>：键盘 WASD / 方向键，
+    /// 以及手机端的屏幕虚拟摇杆（<see cref="VirtualJoystick"/>），正俯视小人。
     /// 只负责「输入 → 移动 → 记录朝向」；朝向的视觉表现（Animator 参数 /
     /// flipX / 走路小跳）全部交给 CharacterAnimDriver，两边通过公开属性通信。
     /// </summary>
@@ -41,17 +42,31 @@ namespace LuminousSSS
 
         private void Update()
         {
-            _input = new Vector2(
-                Input.GetAxisRaw("Horizontal"),
-                Input.GetAxisRaw("Vertical"));
+            // 键盘 / 手柄 / 屏幕摇杆的统一入口；摇杆那一路没有设备时恒为 zero
+            Vector2 input = MoveInput.Read();
 
-            if (_input.sqrMagnitude > 0.01f)
+            // 定速行走：只要推过输入源自己的死区就按满速走。
+            // 阈值取 0.0001（幅度 0.01）而不是原来的 0.01（幅度 0.1）——
+            // 对键盘两者完全等价（轴值只有 -1/0/1），但对摇杆这种连续输入，
+            // 旧阈值会把「刚过死区」的一段变成 0~10% 速度的爬行区，手感发黏。
+            // 摇杆的死区在 VirtualJoystick 里（deadZone = 0.18），到这一步非零即有效。
+            //
+            // 不做「摇杆推多远走多快」的变速：行走动画是定帧的，
+            // 位移变速会让脚步和地面打滑对不上，看起来像滑步。
+            if (input.sqrMagnitude > 0.0001f)
             {
-                _input = _input.normalized;
+                _input = input.normalized;
+
                 // 记录主轴朝向：水平优先（与旧版 flipX 规则一致），纯垂直时记上/下
                 _facing = Mathf.Abs(_input.x) >= Mathf.Abs(_input.y)
                     ? new Vector2(Mathf.Sign(_input.x), 0f)
                     : new Vector2(0f, Mathf.Sign(_input.y));
+            }
+            else
+            {
+                // 旧代码在阈值以下不写 _input，键盘下恰好是 zero 所以看不出问题；
+                // 摇杆是连续量，必须显式清零，否则会留一个极小速度让角色缓缓爬。
+                _input = Vector2.zero;
             }
         }
 
