@@ -864,6 +864,12 @@ namespace LuminousSSS.EditorTools
         /// Canvas 规范与登录界面完全一致（1920×1080、matchWidthOrHeight = 1.0 按高度适配），
         /// 摇杆锚定左下角，因此在 16:9 / 21:9 / 4:3 下都贴角不跑位。
         /// 后续的背包 / 体力条按 Docs/LuminousSSS-UI规格.md 的「层 2 HUD」加在这里。
+        ///
+        /// 横屏是硬性前提（v0.13.1 起由工程设置保证）：matchWidthOrHeight = 1.0 按高度适配，
+        /// 竖屏 1080x1920 时画布宽只剩 1080×(1080/1920) ≈ 608 ——
+        /// 摇杆热区（480，占 x 40..520）会和右下砍伐按钮（360，左边界 608-56-360=192）直接重叠，
+        /// 而且两个触摸热区会互相抢事件。ProjectSettings 已锁「AutoRotation + 只允许左右横屏」。
+        /// 若将来要支持竖屏，HUD 必须重排（摇杆与按钮不能同时贴底），不是调一个尺寸能解决的。
         /// </summary>
         static void BuildFarmHud()
         {
