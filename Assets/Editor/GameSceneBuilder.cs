@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEditor;
 using UnityEditor.Animations;
+using UnityEditor.Events;
 using UnityEditor.SceneManagement;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -102,12 +103,18 @@ namespace LuminousSSS.EditorTools
         const int PathTop = 14;
         const float HouseDoorX = 30f;        // 木屋门（底部中心）的世界 x
 
-        // ---- 农场 HUD（虚拟摇杆）
-        // 尺寸与素材 1:1（gen_ui_joystick.py 出 288 / 128），Point 过滤下不会出现非整数缩放毛边
-        const float JoystickTouchSize = 480f;   // 触摸热区边长（隐形，比底圈大一圈，手指不用瞄准）
-        const float JoystickBaseSize = 288f;    // 底圈显示尺寸
-        const float JoystickKnobSize = 128f;    // 摇杆头显示尺寸
-        const float JoystickInset = 40f;        // 距屏幕左 / 下边缘
+    // ---- 农场 HUD（虚拟摇杆）
+    // 尺寸与素材 1:1（gen_ui_joystick.py 出 288 / 128），Point 过滤下不会出现非整数缩放毛边
+    const float JoystickTouchSize = 480f;   // 触摸热区边长（隐形，比底圈大一圈，手指不用瞄准）
+    const float JoystickBaseSize = 288f;    // 底圈显示尺寸
+    const float JoystickKnobSize = 128f;    // 摇杆头显示尺寸
+    const float JoystickInset = 40f;        // 距屏幕左 / 下边缘
+
+    // ---- 农场 HUD（砍伐按钮，v0.12）
+    // 依据：点击区下限 88x88（移动端建议值），360x120 远超下限；
+    // 与左下摇杆底圈（288 直径）视觉重量平衡；木纹底板走九宫格，宽高任意拉伸不糊。
+    const float ChopButtonW = 360f;
+    const float ChopButtonH = 120f;
 
         static Sprite S(string rel) => AssetDatabase.LoadAssetAtPath<Sprite>(Art + rel);
         static T A<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(path);
@@ -137,6 +144,24 @@ namespace LuminousSSS.EditorTools
 
             EditorSceneManager.OpenScene(ScenesDir + "/LoginScene.scene");
             Debug.Log("[LuminousSSS] 场景生成完成：Assets/Scenes/LoginScene.scene 与 FarmScene.scene（已为你打开 LoginScene，直接点播放即可）。");
+        }
+
+        /// <summary>
+        /// 只重建农场场景（v0.12：AutoBuildScenes 增量用）。
+        /// 前置资产（tile / 动画 / 控制器）缺一个农场场景就是残的，所以先补齐再建；
+        /// 与 <see cref="BuildAll"/> 的区别是绝不碰 LoginScene —— 登录界面允许手动改过。
+        /// </summary>
+        internal static void BuildFarmSceneOnly()
+        {
+            EnsureFolders();
+            EnsureTiles();
+            EnsureCharacterAnimations();
+            EnsureCharacterControllers();
+            BuildFarmScene();
+            RegisterBuildScenes();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/FarmScene.scene（登录场景未动）。");
         }
 
         static void EnsureFolders()
@@ -445,6 +470,7 @@ namespace LuminousSSS.EditorTools
             am.bgm = A<AudioClip>(AudioDir + "bgm_main.wav");
             am.clickClip = A<AudioClip>(AudioDir + "sfx_click.wav");
             am.confirmClip = A<AudioClip>(AudioDir + "sfx_confirm.wav");
+            am.chopClip = A<AudioClip>(AudioDir + "sfx_chop.wav");   // 砍树命中（缺失时 PlayChop 退回 click）
             return am;
         }
 
@@ -646,10 +672,14 @@ namespace LuminousSSS.EditorTools
             camGO.tag = "MainCamera";
             var cam = camGO.GetComponent<Camera>();
             cam.orthographic = true;
-            cam.orthographicSize = 10f;
+            // v0.13：视野高 13 格（原 20 格）。玩家 1.75 格高 → 占屏高 13.5%（原 8.8%）。
+            // 依据：树 4.7 格占 36%、木屋 9.59 格占 74%（地标感），
+            // 相机中心可移动余量 x 16.9 格 / y 11 格（再小就到边，跟随会「顶住」）。
+            cam.orthographicSize = 6.5f;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.16f, 0.24f, 0.14f);
-            camGO.transform.position = new Vector3(20f, 12f, -10f);
+            // 出生点（木屋门口）+ 胸口偏移；CameraFollow.Start 会 snap 到按边界 clamp 后的位置
+            camGO.transform.position = new Vector3(HouseDoorX, 12.5f + 0.6f, -10f);
 
             EnsureAudioManager();
 
@@ -732,6 +762,12 @@ namespace LuminousSSS.EditorTools
             // 土路底部出口旁的木牌
             PlaceProp(props, "V2/Nature/v2_nature_sign.png", 31.4f, 1.4f, new Vector2(0.7f, 0.6f));
 
+            // ---- v0.12 田地种树：砍伐前田地不可见，玩家砍树后才暴露田地（开垦玩法）
+            PlantFieldTrees(props);
+
+            // ---- v0.12 空地加密：原本只有零星几棵树，房子两侧的大片草地空得跑肚皮
+            DecorateOpenGround(props);
+
             // 纯装饰：草丛 + 野花（避开空地和土路）
             foreach (var p in new[] {
                 (4.5f, 7.0f), (5.0f, 12.5f), (33.5f, 6.0f), (35.0f, 17.0f),
@@ -754,7 +790,8 @@ namespace LuminousSSS.EditorTools
             // ---- 玩家（出生在木屋门口土路上，面向下方）
             var player = new GameObject("Player", typeof(Rigidbody2D), typeof(CircleCollider2D),
                                         typeof(PlayerController), typeof(PlayerAppearance),
-                                        typeof(YSort), typeof(CharacterAnimDriver));
+                                        typeof(YSort), typeof(CharacterAnimDriver),
+                                        typeof(PlayerInteractor));   // v0.12：砍树交互（E 键 / HUD 按钮）
             player.transform.position = new Vector3(HouseDoorX, 12.5f, 0f);
 
             var visual = new GameObject("Visual", typeof(SpriteRenderer), typeof(Animator));
@@ -806,6 +843,13 @@ namespace LuminousSSS.EditorTools
             follow.useBounds = true;
             follow.min = new Vector2(0f, 0f);
             follow.max = new Vector2(MapW, MapH);
+            // v0.13 跟随手感：胸口跟随 + 朝向预判 + 进场吸附 + 半像素对齐
+            follow.snapOnStart = true;
+            follow.targetOffset = new Vector2(0f, 0.6f);   // 脚底 → 胸口，角色不贴画面下沿
+            follow.lookAhead = 1.2f;                       // 朝移动方向多看 1.2 格
+            follow.lookAheadSharpness = 4f;
+            follow.smoothTime = 0.15f;                     // 5 格/秒下滞后约 0.75 格
+            follow.pixelGrid = 1f / 128f;                  // ≈ 半屏幕像素，压掉像素游走
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.scene");
@@ -871,6 +915,46 @@ namespace LuminousSSS.EditorTools
             joy.knob = knobImg.rectTransform;
             joy.radius = JoystickBaseSize * 0.5f;       // 底圈半径 = 行程基准
             joy.knobRadius = JoystickKnobSize * 0.5f;   // 可用行程 = 144 - 64 = 80 UI 像素
+
+            // ---- 砍伐按钮（v0.12）：右下角，与左下摇杆对称
+            // 田地初始被树木覆盖，砍伐是进场景后的第一个核心操作，按钮必须常驻 HUD。
+            // 进场时没有可砍目标 → interactable=false（半透明），ChopButtonDriver 每 0.1s 按目标刷新。
+            var chopGO = new GameObject("ChopButton",
+                                        typeof(RectTransform), typeof(Image), typeof(Button),
+                                        typeof(ChopButtonDriver));
+            chopGO.transform.SetParent(root, false);
+            var chopRt = chopGO.GetComponent<RectTransform>();
+            chopRt.anchorMin = chopRt.anchorMax = new Vector2(1f, 0f);   // 锚右下角
+            chopRt.pivot = new Vector2(1f, 0f);
+            chopRt.sizeDelta = new Vector2(ChopButtonW, ChopButtonH);
+            chopRt.anchoredPosition = new Vector2(-(JoystickInset + 16f), JoystickInset);
+
+            var chopImg = chopGO.GetComponent<Image>();
+            chopImg.sprite = S(UiBtnWood);
+            chopImg.type = Image.Type.Sliced;
+            chopImg.pixelsPerUnitMultiplier = UiPpu;    // 与登录按钮一致：边框按素材原始像素 1:1
+            chopImg.raycastTarget = true;
+
+            var chopBtn = chopGO.GetComponent<Button>();
+            chopBtn.targetGraphic = chopImg;
+            chopBtn.colors = MakeButtonColors();
+            chopBtn.interactable = false;
+
+            var chopLabelGO = new GameObject("Label", typeof(RectTransform), typeof(Text));
+            chopLabelGO.transform.SetParent(chopGO.transform, false);
+            var chopLabelRt = chopLabelGO.GetComponent<RectTransform>();
+            chopLabelRt.anchorMin = chopLabelRt.anchorMax = new Vector2(0.5f, 0.5f);
+            chopLabelRt.pivot = new Vector2(0.5f, 0.5f);
+            chopLabelRt.sizeDelta = new Vector2(ChopButtonW - 24f, ChopButtonH - 24f);
+            chopLabelRt.anchoredPosition = Vector2.zero;
+            Style(chopLabelGO.GetComponent<Text>(), "砍  伐", 44, TextAnchor.MiddleCenter, WoodTextColor);
+            AddOutline(chopLabelGO.GetComponent<Text>(), WoodTextOutline, 2f);
+
+            // 持久监听：运行时 onClick.AddListener 不会被序列化，保存场景后丢失，
+            // 必须用 UnityEventTools 写进 m_OnClick.m_PersistentCalls。
+            var chopDriver = chopGO.GetComponent<ChopButtonDriver>();
+            UnityEventTools.RegisterPersistentListener(
+                chopBtn.onClick, 0, chopDriver, nameof(ChopButtonDriver.OnClickChop));
         }
 
         /// <summary>锚点与轴心都取 (0.5,0.5) 的 UI 元素 —— 相对父节点居中。</summary>
@@ -910,6 +994,108 @@ namespace LuminousSSS.EditorTools
                 box.size = collider.Value;
                 box.offset = new Vector2(0f, -h * 0.5f + collider.Value.y * 0.5f);
             }
+        }
+
+        /// <summary>
+        /// v0.12 田地种树：砍伐前田地不可见，玩家砍树后田地才暴露（开垦玩法）。
+        ///
+        /// 梅花型种植：行内隔 2 格、相邻行错开 1 格（每 2x2 格一棵），
+        /// 树间留 1 格通道；碰撞盒 1.0 格宽占格心，玩家（半径 0.32）刚好能从树缝走到田中央。
+        /// 范围 = DirtRect 内缩 1 格，四周留通道进田（不内缩的话边缘树会把田堵死）。
+        /// 树种按坐标哈希 6:4 混栽（阔叶 60% / 松树 40%），防止出现条纹状纯色带。
+        ///
+        /// 已砍记录由 TreeChop 读 PlayerPrefs（键 LuminousSSS.ChoppedTrees），
+        /// 重进场景不长回来 —— 开垦进度不丢。
+        /// </summary>
+        static void PlantFieldTrees(Transform parent)
+        {
+            var broad = S("V2/Nature/v2_nature_tree_broadleaf.png");
+            var pine = S("V2/Nature/v2_nature_tree_pine.png");
+            var stump = S("V2/Nature/v2_nature_stump.png");
+            if (broad == null || pine == null)
+            {
+                Debug.LogWarning("[LuminousSSS] 缺少树木素材（v2_nature_tree_*），田地种树跳过");
+                return;
+            }
+
+            int planted = 0;
+            for (int y = DirtRect.yMin + 1; y <= DirtRect.yMax - 1; y += 2)
+            {
+                // y 为奇数时整行右移半格（错开 1 格），形成梅花型
+                for (int x = DirtRect.xMin + 1 + (y & 1); x <= DirtRect.xMax - 1; x += 2)
+                {
+                    bool isPine = Mathf.Abs(x * 31 + y * 17) % 10 >= 6;   // 阔叶 60% / 松树 40%
+                    PlaceChopTree(parent,
+                                  isPine ? pine : broad, stump,
+                                  x + 0.5f, y + 0.5f,
+                                  $"tree_{x}_{y}",
+                                  isPine ? new Vector2(0.9f, 0.7f) : new Vector2(1.0f, 0.8f));
+                    planted++;
+                }
+            }
+            Debug.Log($"[LuminousSSS] 田地种树 {planted} 棵（砍伐前田地不可见，砍树后暴露）");
+        }
+
+        /// <summary>
+        /// 种一棵可砍伐的树：与 <see cref="PlaceProp"/> 同一套「底部对齐 + Y 排序」公式，
+        /// 额外挂 TreeChop 并写入 treeId / stumpSprite / groundY（砍倒后换树桩要按底部重新对齐）。
+        /// </summary>
+        static void PlaceChopTree(Transform parent, Sprite tree, Sprite stump, float cx, float groundY,
+                                  string treeId, Vector2 collider)
+        {
+            if (tree == null) { Debug.LogWarning("[LuminousSSS] 缺少树木素材"); return; }
+
+            var go = new GameObject("Tree_" + treeId,
+                                    typeof(SpriteRenderer), typeof(BoxCollider2D), typeof(TreeChop));
+            go.transform.SetParent(parent, false);
+            var sr = go.GetComponent<SpriteRenderer>();
+            sr.sprite = tree;
+
+            // sprite 是 Center 轴心：按「底部对齐到 groundY」摆放（与 PlaceProp 一致）
+            float h = tree.rect.height / tree.pixelsPerUnit;
+            go.transform.position = new Vector3(cx, groundY + h * 0.5f, 0f);
+            sr.sortingOrder = Mathf.RoundToInt((MapH - groundY) * 10f);
+
+            var box = go.GetComponent<BoxCollider2D>();
+            box.size = collider;
+            box.offset = new Vector2(0f, -h * 0.5f + collider.y * 0.5f);
+
+            var chop = go.GetComponent<TreeChop>();
+            chop.treeId = treeId;
+            chop.stumpSprite = stump;
+            chop.groundY = groundY;
+        }
+
+        /// <summary>
+        /// v0.12 空地加密：木屋两侧与四角补树补灌木，让农场「住得进人」。
+        /// 全部避开：木屋本体（x 25.9..34.1, y 14..23.6）、土路两列（x 29/30）、
+        /// 已有物件坐标。位置硬编码 + 确定性，重新生成场景结果不变。
+        /// </summary>
+        static void DecorateOpenGround(Transform parent)
+        {
+            // 左下空地（木屋左侧、土路下方的大片草坡）
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_broadleaf.png", 7f, 18.8f, new Vector2(1.0f, 0.8f));
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_broadleaf.png", 13f, 18.5f, new Vector2(1.0f, 0.8f));
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_broadleaf.png", 19f, 20f, new Vector2(1.0f, 0.8f));
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_pine.png", 10.5f, 20.5f, new Vector2(0.9f, 0.7f));
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_pine.png", 22f, 18.5f, new Vector2(0.9f, 0.7f));
+            PlaceProp(parent, "V2/Nature/v2_nature_bush.png", 5.5f, 17.5f, new Vector2(1.6f, 0.9f));
+            PlaceProp(parent, "V2/Nature/v2_nature_bush.png", 16f, 20f, new Vector2(1.6f, 0.9f));
+            PlaceProp(parent, "V2/Nature/v2_nature_bush.png", 23.5f, 20f, new Vector2(1.6f, 0.9f));
+            PlaceProp(parent, "V2/Nature/v2_nature_rock.png", 9f, 20.3f, new Vector2(1.5f, 0.9f));
+            // 花草点缀（无碰撞，纯装饰）
+            PlaceProp(parent, "V2/Nature/v2_nature_grass_tuft.png", 12f, 19.5f, null);
+            PlaceProp(parent, "V2/Nature/v2_nature_flower_yellow.png", 17.5f, 17.8f, null);
+            PlaceProp(parent, "V2/Nature/v2_nature_flower_white.png", 21f, 21.2f, null);
+            PlaceProp(parent, "V2/Nature/v2_nature_grass_tuft.png", 8f, 21.8f, null);
+
+            // 右上空地（木屋右侧，x 35..38 窄条）
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_pine.png", 36f, 20.5f, new Vector2(0.9f, 0.7f));
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_pine.png", 35.5f, 18f, new Vector2(0.9f, 0.7f));
+
+            // 左上角（左侧树列与墙之间的空隙）
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_broadleaf.png", 5.5f, 19.8f, new Vector2(1.0f, 0.8f));
+            PlaceProp(parent, "V2/Nature/v2_nature_tree_pine.png", 2.5f, 21.3f, new Vector2(0.9f, 0.7f));
         }
 
         static void MakeWall(Transform parent, string name, Vector2 center, Vector2 size)

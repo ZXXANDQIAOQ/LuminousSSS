@@ -22,6 +22,7 @@ namespace LuminousSSS
         public AudioClip bgm;
         public AudioClip clickClip;
         public AudioClip confirmClip;
+        public AudioClip chopClip;   // 砍树命中（程序化合成，gen_audio.py）
 
         public bool MusicOn { get; private set; }
         public bool SfxOn { get; private set; }
@@ -98,6 +99,14 @@ namespace LuminousSSS
         {
             if (Instance != null && Instance.SfxOn && Instance.sfxSource != null && Instance.confirmClip != null)
                 Instance.sfxSource.PlayOneShot(Instance.confirmClip);
+        }
+
+        /// <summary>砍树命中音。没有 chopClip 时退回 clickClip，保证老场景也有反馈。</summary>
+        public static void PlayChop()
+        {
+            if (Instance == null || !Instance.SfxOn || Instance.sfxSource == null) return;
+            var clip = Instance.chopClip != null ? Instance.chopClip : Instance.clickClip;
+            if (clip != null) Instance.sfxSource.PlayOneShot(clip);
         }
     }
 }

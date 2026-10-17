@@ -13,6 +13,7 @@ LuminousSSS 音频合成器（v0.2）
 """
 import math
 import os
+import random
 import struct
 import wave
 
@@ -122,9 +123,44 @@ def gen_confirm():
     write_wav(os.path.join(OUT, "sfx_confirm.wav"), samples)
 
 
+def gen_chop():
+    """砍树命中：两段式木头撞击声。
+
+    第一下是低频「咚」（120Hz 附近快速下滑的三角感正弦，模拟斧头入木）；
+    紧跟一簇短噪声「咔」（木纤维劈开的震颤），高频为主、衰减极快。
+    总长 0.18s —— 玩家连砍时声音不能糊成一片。
+    """
+    dur = 0.18
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261017)
+
+    # 「咚」：低频冲击
+    for i in range(len(samples)):
+        t = i / SR
+        if t > 0.07:
+            break
+        f = 130 - 60 * (t / 0.07)
+        env = math.exp(-t / 0.018)
+        samples[i] += 0.9 * env * math.sin(2 * math.pi * f * t)
+
+    # 「咔」：木屑噪声（窄带感：让噪声过低通，只留中高频）
+    prev = 0.0
+    for i in range(len(samples)):
+        t = i / SR
+        if t < 0.02:
+            continue
+        env = math.exp(-(t - 0.02) / 0.045)
+        white = rnd.uniform(-1.0, 1.0)
+        prev = 0.82 * prev + 0.18 * white          # 一阶低通，留下中低频的「闷响」成分
+        samples[i] += 0.35 * env * (white * 0.45 + prev * 0.55)
+
+    write_wav(os.path.join(OUT, "sfx_chop.wav"), samples)
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     gen_bgm()
     gen_click()
     gen_confirm()
+    gen_chop()
     print("音频生成完成。")
