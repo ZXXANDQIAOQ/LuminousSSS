@@ -672,10 +672,14 @@ namespace LuminousSSS.EditorTools
             camGO.tag = "MainCamera";
             var cam = camGO.GetComponent<Camera>();
             cam.orthographic = true;
-            cam.orthographicSize = 10f;
+            // v0.13：视野高 13 格（原 20 格）。玩家 1.75 格高 → 占屏高 13.5%（原 8.8%）。
+            // 依据：树 4.7 格占 36%、木屋 9.59 格占 74%（地标感），
+            // 相机中心可移动余量 x 16.9 格 / y 11 格（再小就到边，跟随会「顶住」）。
+            cam.orthographicSize = 6.5f;
             cam.clearFlags = CameraClearFlags.SolidColor;
             cam.backgroundColor = new Color(0.16f, 0.24f, 0.14f);
-            camGO.transform.position = new Vector3(20f, 12f, -10f);
+            // 出生点（木屋门口）+ 胸口偏移；CameraFollow.Start 会 snap 到按边界 clamp 后的位置
+            camGO.transform.position = new Vector3(HouseDoorX, 12.5f + 0.6f, -10f);
 
             EnsureAudioManager();
 
@@ -839,6 +843,13 @@ namespace LuminousSSS.EditorTools
             follow.useBounds = true;
             follow.min = new Vector2(0f, 0f);
             follow.max = new Vector2(MapW, MapH);
+            // v0.13 跟随手感：胸口跟随 + 朝向预判 + 进场吸附 + 半像素对齐
+            follow.snapOnStart = true;
+            follow.targetOffset = new Vector2(0f, 0.6f);   // 脚底 → 胸口，角色不贴画面下沿
+            follow.lookAhead = 1.2f;                       // 朝移动方向多看 1.2 格
+            follow.lookAheadSharpness = 4f;
+            follow.smoothTime = 0.15f;                     // 5 格/秒下滞后约 0.75 格
+            follow.pixelGrid = 1f / 128f;                  // ≈ 半屏幕像素，压掉像素游走
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.scene");
