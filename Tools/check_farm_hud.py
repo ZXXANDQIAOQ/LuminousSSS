@@ -24,7 +24,11 @@ UI_DIR = os.path.join(ROOT, 'Assets/Art/V2/UI')
 
 DOC_RE = re.compile(r'^--- !u!(\d+) &(\d+)(?: stripped)?\n', re.M)
 NAME_RE = re.compile(r'^  m_Name: (.+)$', re.M)
-GUID_RE = re.compile(r'guid: ([0-9a-f]{32})')
+# 团结引擎的 meta guid 是 41 字节随机数的 base64（56 字符，末尾 '='），
+# 而场景 YAML 里引用的是 32 位 hex —— 两套写法**不相等**，不能直接拿 meta guid 去场景里搜。
+# 所以下面的判据一律走「结构 + 字段特征 + 跨场景一致性」，不再比对 guid 字符串本身。
+GUID_RE = re.compile(r'guid: ([0-9a-f]{32}|[A-Za-z0-9+/]{55}=)')
+SCRIPT_GUID_RE = re.compile(r'm_Script: \{fileID: \d+, guid: ([A-Za-z0-9+/=]+)')
 
 RESULTS = []
 
@@ -79,7 +83,7 @@ def script_guids_of(docs, gos, go_name):
         cls, body = docs.get(fid, (None, ''))
         if cls != 114:                    # 114 = MonoBehaviour
             continue
-        m = re.search(r'm_Script: \{fileID: \d+, guid: ([0-9a-f]{32})', body)
+        m = SCRIPT_GUID_RE.search(body)
         if m:
             out.add(m.group(1))
     return out
@@ -105,18 +109,37 @@ def main():
     print(f'场景 {os.path.relpath(SCENE, ROOT)}：{go_count} 个 GameObject'
           f'（{len(gos)} 个不重名）\n')
 
-    # ---- 0. 素材 / 脚本 guid 是否齐备 --------------------------------------
-    base_guid = guid_of('Assets/Art/V2/UI/v2_ui_joystick_base.png')
-    knob_guid = guid_of('Assets/Art/V2/UI/v2_ui_joystick_knob.png')
-    joy_guid = guid_of('Assets/Scripts/Controls/VirtualJoystick.cs')
-    plc_guid = guid_of('Assets/Scripts/Gameplay/PlayerController.cs')
-    if not all((base_guid, knob_guid, joy_guid, plc_guid)):
-        miss = [n for n, g in (('摇杆底圈', base_guid), ('摇杆头', knob_guid),
-                               ('VirtualJoystick.cs', joy_guid),
-                               ('PlayerController.cs', plc_guid)) if not g]
-        print(f'[FAIL] 缺 guid（{ "、".join(miss) }）—— 请先在编辑器里打开一次工程，'
-              f'让引擎导入新素材与新脚本生成 .meta，再跑一键生成。')
+    # ---- 0. 素材 / 脚本是否都已被引擎导入（有 .meta）-----------------------
+    need_meta = ('Assets/Art/V2/UI/v2_ui_joystick_base.png',
+                 'Assets/Art/V2/UI/v2_ui_joystick_knob.png',
+                 'Assets/Scripts/Controls/VirtualJoystick.cs',
+                 'Assets/Scripts/Gameplay/PlayerController.cs',
+                 'Assets/Scripts/Gameplay/CameraFollow.cs')
+    miss = [p for p in need_meta if not guid_of(p)]
+    if miss:
+        print('[FAIL] 缺 .meta：' + '、'.join(os.path.basename(p) for p in miss)
+              + ' —— 请先在编辑器里打开一次工程，让引擎导入新素材与新脚本，再跑一键生成。')
         return 1
+
+    # ---- 0b. 场景里不能有 Missing Script（m_Script 只有 fileID、没有 guid）--
+    # 典型成因：MonoBehaviour 类名与文件名不一致（CameraFollow 曾和 PlayerAppearance
+    # 挤在同一个 .cs 里），引擎生成不出 MonoScript 资产，序列化后只剩 fileID，
+    # 进游戏就报 "The referenced script (Unknown) on this Behaviour is missing!"。
+    orphan = []
+    for fid, (cls, body) in docs.items():
+        if cls != 114:
+            continue
+        if SCRIPT_GUID_RE.search(body):
+            continue
+        go = re.search(r'm_GameObject: \{fileID: (\d+)\}', body)
+        onm = '?'
+        if go and int(go.group(1)) in docs:
+            nm = NAME_RE.search(docs[int(go.group(1))][1])
+            if nm:
+                onm = nm.group(1).strip()
+        orphan.append(f'{onm}(fileID {fid})')
+    check('场景里没有 Missing Script', not orphan,
+          '、'.join(orphan) if orphan else '每个 MonoBehaviour 都带有效 guid')
 
     # ---- 1. 结构：五个必需节点 --------------------------------------------
     for name in ('Canvas', 'EventSystem', 'Joystick', 'Base', 'Knob'):
@@ -126,13 +149,17 @@ def main():
         print('\n场景里没有 Joystick —— 说明场景还是旧的，请重跑 Tools/LuminousSSS/一键生成（资源 + 场景）。')
         return 1
 
-    # ---- 2. Canvas 组件构成与登录场景一致（那套是已上机验证过的）----------
-    if login_gos and 'Canvas' in login_gos:
-        want = script_guids_of(login_docs, login_gos, 'Canvas')
-        got = script_guids_of(docs, gos, 'Canvas')
-        missing = want - got
-        check('农场 Canvas 的脚本组件与登录场景一致', not missing,
-              f'缺 {len(missing)} 个' if missing else f'{len(want)} 个组件')
+    # ---- 2. Canvas 必备组件 ----------------------------------------------
+    # 不再要求「和登录场景 guid 集合完全相等」——登录 Canvas 上还挂着角色选择
+    # 预览这类业务脚本，农场本来就不需要。只校验通用必备件：
+    #   CanvasScaler（下面单独查参数）+ GraphicRaycaster（收点击）+ UIFontFixer（中文字体）
+    canvas_comps = [docs.get(f, (None, '')) for f in gos.get('Canvas', [])]
+    check('Canvas 有 GraphicRaycaster（否则点不到按钮）',
+          any(c == 114 and 'm_BlockingMask' in b for c, b in canvas_comps),
+          '看 m_BlockingMask 字段')
+    n_mb = len([1 for c, b in canvas_comps if c == 114])
+    check('Canvas 挂了 3 个通用组件（Scaler / Raycaster / UIFontFixer）', n_mb >= 3,
+          f'实测 {n_mb} 个 MonoBehaviour')
 
     # ---- 3. CanvasScaler：1920x1080 / 按高度适配 --------------------------
     _, scaler = comp_with(docs, gos, 'Canvas', 'm_MatchWidthOrHeight')
@@ -147,7 +174,11 @@ def main():
         check('CanvasScaler 存在', False, 'Canvas 上没找到 CanvasScaler')
 
     # ---- 4. Joystick：脚本 + 全透明热区 + 左下角锚定 ----------------------
-    check('Joystick 挂了 VirtualJoystick', joy_guid in script_guids_of(docs, gos, 'Joystick'))
+    # 用序列化字段特征认 VirtualJoystick（knobRadius 是它独有的），不比对 guid。
+    joy_comps = [docs.get(f, (None, '')) for f in gos.get('Joystick', [])]
+    check('Joystick 挂了 VirtualJoystick',
+          any(c == 114 and 'knobRadius' in b for c, b in joy_comps),
+          '看 knobRadius 字段')
 
     _, img = comp_with(docs, gos, 'Joystick', 'm_RaycastTarget')
     check('Joystick 热区 raycastTarget = 1（否则收不到触摸）',
@@ -170,7 +201,7 @@ def main():
     joy_body = None
     for fid in gos.get('Joystick', []):
         cls, body = docs.get(fid, (None, ''))
-        if cls == 114 and f'guid: {joy_guid}' in body:
+        if cls == 114 and 'knobRadius' in body:
             joy_body = body
             break
     if joy_body:
@@ -188,15 +219,20 @@ def main():
         check('VirtualJoystick 组件正文可读', False)
 
     # ---- 6. 底圈 / 摇杆头：素材引用 + 不参与拾取 --------------------------
-    for name, guid in (('Base', base_guid), ('Knob', knob_guid)):
+    SPRITE_RE = re.compile(r'm_Sprite: \{fileID: -?\d+, guid: ([A-Za-z0-9+/=]+)')
+    for name in ('Base', 'Knob'):
         body = ''.join(docs.get(f, (None, ''))[1] for f in gos.get(name, []))
-        check(f'{name} 引用了摇杆素材', guid in body)
+        m = SPRITE_RE.search(body)
+        check(f'{name} 的 Image 引用了摇杆素材', bool(m), f'sprite guid={m.group(1)[:12]}…' if m else 'm_Sprite 为空')
         check(f'{name} raycastTarget = 0（不抢触摸）',
               bool(re.search(r'm_RaycastTarget: 0', body)),
               '摇杆视觉层不能挡住热区')
 
-    # ---- 7. 玩家：PlayerController 在位 -----------------------------------
-    check('Player 挂了 PlayerController', plc_guid in script_guids_of(docs, gos, 'Player'))
+    # ---- 7. 玩家：PlayerController 在位（用 moveSpeed 字段认） --------------
+    plc_comps = [docs.get(f, (None, '')) for f in gos.get('Player', [])]
+    check('Player 挂了 PlayerController',
+          any(c == 114 and 'moveSpeed' in b for c, b in plc_comps),
+          '看 moveSpeed 字段')
 
     # ---- 汇总 --------------------------------------------------------------
     bad = [r for r in RESULTS if not r[1]]
