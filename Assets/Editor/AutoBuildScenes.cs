@@ -19,6 +19,8 @@ namespace LuminousSSS.EditorTools
     {
         const string LoginScenePath = "Assets/Scenes/LoginScene.scene";
         const string FarmScenePath = "Assets/Scenes/FarmScene.scene";
+        const string House1FPath = "Assets/Scenes/House1FScene.scene";
+        const string House2FPath = "Assets/Scenes/House2FScene.scene";
         const string GrassTilePath = "Assets/Art/V2/Tiles/fill_grass_a.png";
 
         static bool s_tried;
@@ -34,7 +36,8 @@ namespace LuminousSSS.EditorTools
 
             bool needLogin = !File.Exists(LoginScenePath);
             bool needFarm = !File.Exists(FarmScenePath);
-            if (!needLogin && !needFarm) { s_tried = true; return; }
+            bool needHouse = !File.Exists(House1FPath) || !File.Exists(House2FPath);
+            if (!needLogin && !needFarm && !needHouse) { s_tried = true; return; }
 
             // 等编译 / 资源导入都结束（fill 瓦片已能作为 Texture 加载）再动手，
             // 否则首次打开工程时 AssetDatabase 还没就绪会生成出空场景。
@@ -49,8 +52,8 @@ namespace LuminousSSS.EditorTools
 
             if (needLogin && needFarm)
             {
-                // 两个都没有：一键全建（首启路径，与旧行为一致）
-                Debug.Log("[LuminousSSS] 检测到两个游戏场景都没生成，自动执行一键生成（登录界面 + 农场场景）……");
+                // 两个主场景都没有：一键全建（首启路径，含室内 —— OneClick 走 BuildAll）
+                Debug.Log("[LuminousSSS] 检测到主场景都没生成，自动执行一键生成（登录 + 农场 + 小洋楼）……");
                 GameSceneBuilder.OneClick();
                 return;
             }
@@ -58,15 +61,20 @@ namespace LuminousSSS.EditorTools
             // 缺哪个补哪个，绝不重建已存在的场景
             if (needFarm)
             {
-                Debug.Log("[LuminousSSS] 检测到农场场景缺失，自动补建 FarmScene（登录场景未动）……");
+                Debug.Log("[LuminousSSS] 检测到农场场景缺失，自动补建 FarmScene（其他场景未动）……");
                 GameSceneBuilder.BuildFarmSceneOnly();
             }
-            else
+
+            if (needLogin)
             {
-                // 走 BuildLoginSceneOnly，不能用 OneClick —— 后者是 BuildAll，
-                // 会把已存在的 FarmScene 一起重建掉。
-                Debug.Log("[LuminousSSS] 检测到登录场景缺失，自动补建 LoginScene（农场场景未动）……");
+                Debug.Log("[LuminousSSS] 检测到登录场景缺失，自动补建 LoginScene（其他场景未动）……");
                 GameSceneBuilder.BuildLoginSceneOnly();
+            }
+
+            if (needHouse)
+            {
+                Debug.Log("[LuminousSSS] 检测到小洋楼场景缺失，自动补建 House1FScene / House2FScene……");
+                GameSceneBuilder.BuildHouseScenesOnly();
             }
         }
     }

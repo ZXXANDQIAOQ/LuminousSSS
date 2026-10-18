@@ -3,30 +3,40 @@ using UnityEngine;
 namespace LuminousSSS
 {
     /// <summary>
-    /// 玩家交互：扫描身旁最近的可砍树，响应 E 键（PC）与 HUD 砍伐按钮（手机）。
-    /// 只做「找目标 + 触发砍击」，砍击的数值与表现全在 <see cref="TreeChop"/>。
+    /// 玩家交互：扫描身旁最近的可交互物，响应 E 键（PC）与 HUD 交互按钮（手机）。
+    /// 只做「找目标 + 转发交互」，具体行为由目标自己实现 <see cref="IInteractable"/>。
     ///
     /// 扫描用 0.1s 轮询而不是每帧 OverlapCircle：场景里树木上百棵，
     /// 每帧全扫浪费；0.1s 的延迟远低于人手反应，HUD 按钮的亮/灰看不出差别。
+    ///
+    /// v0.14 起从「只认 TreeChop」改成「认 IInteractable」—— 门、楼梯、商店
+    /// 都是这套体系，新增交互物不用再动这个类和 HUD。
     /// </summary>
     [RequireComponent(typeof(PlayerController))]
     [DisallowMultipleComponent]
     public class PlayerInteractor : MonoBehaviour
     {
         [Header("交互")]
-        [Tooltip("玩家中心到树中心的最大交互距离（世界单位 ≈ 格）。1.6 = 树碰撞盒外约 0.6 格可触及")]
+        [Tooltip("玩家中心到交互物中心的最大距离（世界单位 ≈ 格）。1.6 = 树碰撞盒外约 0.6 格可触及")]
         public float interactRange = 1.6f;
 
-        [Tooltip("PC 砍伐键。E 是农场/生存游戏的约定键；避开 WASD 与空格（空格常用于对话框）")]
-        public KeyCode chopKey = KeyCode.E;
+        [Tooltip("PC 交互键。E 是农场/生存游戏的约定键；避开 WASD 与空格（空格常用于对话框）")]
+        public KeyCode interactKey = KeyCode.E;
 
         [Tooltip("扫描间隔（秒）")]
         public float scanInterval = 0.1f;
 
-        /// <summary>当前可砍的最近树（没有则为 null）。HUD 按钮据此亮/灰。</summary>
-        public TreeChop CurrentTarget { get; private set; }
+        [Tooltip("没有目标时 HUD 按钮上的文案")]
+        public string idlePrompt = "交互";
+
+        /// <summary>当前最近的可交互物（没有则为 null）。HUD 按钮据此亮/灰、改文案。</summary>
+        public IInteractable Current { get; private set; }
+
+        /// <summary>HUD 按钮该显示的文字：有目标用目标自己的动词，没有就用 idlePrompt。</summary>
+        public string CurrentPrompt => Current != null ? Current.Prompt : idlePrompt;
 
         private float _nextScan;
+        private readonly Collider2D[] _hits = new Collider2D[32];
 
         private void Update()
         {
@@ -36,43 +46,49 @@ namespace LuminousSSS
                 Scan();
             }
 
-            if (Input.GetKeyDown(chopKey)) Interact();
+            if (Input.GetKeyDown(interactKey)) Interact();
         }
 
         private void Scan()
         {
-            var hits = Physics2D.OverlapCircleAll(transform.position, interactRange);
+            int n = Physics2D.OverlapCircleNonAlloc(transform.position, interactRange, _hits);
+            IInteractable best = null;
             float bestSqr = interactRange * interactRange;
-            TreeChop best = null;
 
-            foreach (var h in hits)
+            for (int i = 0; i < n; i++)
             {
-                // 碰撞盒与 TreeChop 同挂在树根节点，直接取即可
-                var tree = h.GetComponent<TreeChop>();
-                if (tree == null || tree.IsChopped) continue;
+                var col = _hits[i];
+                if (col == null) continue;
+                if (col.transform == transform || col.transform.IsChildOf(transform)) continue;
 
-                float sqr = ((Vector2)(tree.transform.position - transform.position)).sqrMagnitude;
-                if (sqr < bestSqr)
+                // 接口挂在碰撞体所在物体或其父级（门/楼梯常常把 collider 放子节点）
+                var it = col.GetComponentInParent<IInteractable>();
+                if (it == null || !it.CanInteract) continue;
+
+                float sqr = ((Vector2)(col.transform.position - transform.position)).sqrMagnitude;
+                if (sqr <= bestSqr)
                 {
                     bestSqr = sqr;
-                    best = tree;
+                    best = it;
                 }
             }
 
-            CurrentTarget = best;
+            Current = best;
         }
 
         /// <summary>
-        /// 砍当前目标一下。HUD 砍伐按钮的 onClick 绑这个方法。
-        /// 返回 true = 这一下砍倒了树。
+        /// 交互当前目标。HUD 按钮的 onClick 绑这个方法。
+        /// 返回 true = 确实执行了一次交互。
         /// </summary>
         public bool Interact()
         {
-            if (CurrentTarget == null || CurrentTarget.IsChopped) return false;
+            var target = Current;
+            if (target == null || !target.CanInteract) return false;
 
-            bool felled = CurrentTarget.Chop();
-            if (felled) CurrentTarget = null;   // 立刻清空，HUD 按钮马上变灰
-            return felled;
+            // 先清空：砍倒树 / 进屋后，HUD 按钮要立刻变灰，不能等下一次扫描
+            Current = null;
+            target.Interact(this);
+            return true;
         }
     }
 }

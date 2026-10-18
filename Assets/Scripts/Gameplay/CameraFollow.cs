@@ -71,14 +71,21 @@ namespace LuminousSSS
         {
             if (target != null) _pc = target.GetComponent<PlayerController>();
 
-            if (snapOnStart && target != null)
-            {
-                _look = Vector2.zero;
-                _vel = Vector3.zero;
-                _pos = ComputeDesired();
-                _posReady = true;
-                transform.position = Quantize(_pos);
-            }
+            if (snapOnStart && target != null) SnapNow();
+        }
+
+        /// <summary>
+        /// 立刻吸到目标位置（不插值）。进场 / 场景传送摆位后调用，
+        /// 否则相机会从上一个场景的位置滑过来，穿墙一瞬很难看。
+        /// </summary>
+        public void SnapNow()
+        {
+            if (target == null) return;
+            _look = Vector2.zero;
+            _vel = Vector3.zero;
+            _pos = ComputeDesired();
+            _posReady = true;
+            transform.position = Quantize(_pos);
         }
 
         private void LateUpdate()

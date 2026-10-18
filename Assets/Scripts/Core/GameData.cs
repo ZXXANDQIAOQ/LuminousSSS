@@ -7,6 +7,18 @@ namespace LuminousSSS
     {
         public const string SceneLogin = "LoginScene";
         public const string SceneFarm = "FarmScene";
+        public const string SceneHouse1F = "House1FScene";   // 小洋楼一层（客厅 / 厨房）
+        public const string SceneHouse2F = "House2FScene";   // 小洋楼二层（卧室 / 书房）
+
+        // ---- 出生点 id（PlayerSpawnPoint.id）
+        /// <summary>默认落地：农场门口 / 一楼大门口。</summary>
+        public const string SpawnDefault = "Default";
+
+        /// <summary>楼梯口：从一楼上去落在二楼楼梯口，从二楼下来落在一楼楼梯口。</summary>
+        public const string SpawnStairs = "Stairs";
+
+        /// <summary>农场木屋门口：从屋里出来落在这里。</summary>
+        public const string SpawnDoor = "Door";
 
         /// <summary>已选角色编号（001 / 002 / 003）在 PlayerPrefs 里的键。</summary>
         public const string PrefCharacterId = "LuminousSSS.CharacterId";

@@ -1,26 +1,36 @@
 # -*- coding: utf-8 -*-
-"""校验生成的 FarmScene 是否真的带上了移动端输入（Canvas + EventSystem + 虚拟摇杆）。
+"""离线校验生成的游戏场景是否「结构完整」（不开编辑器，只读场景 YAML）。
+
+覆盖 4 个场景里的 3 个玩法场景：FarmScene / House1FScene / House2FScene。
 
 为什么需要这个脚本：
-    「手机端不能移动」的根因是农场场景没有 Canvas / EventSystem，摇杆无处安放。
-    这类**结构缺失**在编辑器里点 Play 之前完全看不出来（PC 上有键盘照常能走），
-    所以做一道离线门禁：只读场景 YAML，不开编辑器也能判定修没修好。
+    「手机端不能移动」的根因是农场场景没有 Canvas / EventSystem，摇杆无处安放；
+    「进屋后一片空白」的根因是场景没生成或传送点漏了。这类**结构缺失**在编辑器里
+    点 Play 之前完全看不出来（PC 上有键盘照常能走），所以做一道离线门禁。
+
+三类判据：
+    1. 通用 HUD：Canvas + EventSystem + 摇杆三件套 + CanvasScaler 参数 + 玩家控制器；
+    2. 传送链路（v0.14）：每个门 / 楼梯都有 ScenePortal，且 targetScene / spawnPointId 正确，
+       每个场景都有能接住它的 PlayerSpawnPoint；
+    3. 室内专属：地板 Tilemap、家具数量、相机 bounds 与房间尺寸一致。
 
 用法：
     python Tools/check_farm_hud.py
-    python Tools/check_farm_hud.py --verify-ui   # 顺带校验摇杆素材
+    python Tools/check_farm_hud.py --farm-only    # 只查农场（旧行为）
 
 退出码：0 = 全部通过；1 = 有失败项。
-前提：场景已用 Tools/LuminousSSS/一键生成（资源 + 场景）重新生成过。
+前提：场景已用 Tools/LuminousSSS/2. 生成游戏场景 重新生成过。
 """
 import os
 import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCENE = os.path.join(ROOT, 'Assets/Scenes/FarmScene.scene')
-LOGIN_SCENE = os.path.join(ROOT, 'Assets/Scenes/LoginScene.scene')
-UI_DIR = os.path.join(ROOT, 'Assets/Art/V2/UI')
+SCENES_DIR = os.path.join(ROOT, 'Assets/Scenes')
+FARM = os.path.join(SCENES_DIR, 'FarmScene.scene')
+HOUSE1F = os.path.join(SCENES_DIR, 'House1FScene.scene')
+HOUSE2F = os.path.join(SCENES_DIR, 'House2FScene.scene')
+LOGIN_SCENE = os.path.join(SCENES_DIR, 'LoginScene.scene')
 
 DOC_RE = re.compile(r'^--- !u!(\d+) &(\d+)(?: stripped)?\n', re.M)
 NAME_RE = re.compile(r'^  m_Name: (.+)$', re.M)
@@ -29,6 +39,7 @@ NAME_RE = re.compile(r'^  m_Name: (.+)$', re.M)
 # 所以下面的判据一律走「结构 + 字段特征 + 跨场景一致性」，不再比对 guid 字符串本身。
 GUID_RE = re.compile(r'guid: ([0-9a-f]{32}|[A-Za-z0-9+/]{55}=)')
 SCRIPT_GUID_RE = re.compile(r'm_Script: \{fileID: \d+, guid: ([A-Za-z0-9+/=]+)')
+SPRITE_RE = re.compile(r'm_Sprite: \{fileID: -?\d+, guid: ([A-Za-z0-9+/=]+)')
 
 RESULTS = []
 
@@ -45,7 +56,7 @@ def parse_scene(path):
     会重复十几次），所以同名必须**合并**组件列表，不能后写覆盖前写。
     """
     if not os.path.exists(path):
-        return None, None
+        return None, None, 0
     text = open(path, encoding='utf-8', errors='ignore').read()
     docs = {}
     count = 0
@@ -76,19 +87,6 @@ def guid_of(asset_rel):
     return m.group(1) if m else None
 
 
-def script_guids_of(docs, gos, go_name):
-    """某个 GameObject 上挂的所有 MonoBehaviour 的脚本 guid。"""
-    out = set()
-    for fid in gos.get(go_name, []):
-        cls, body = docs.get(fid, (None, ''))
-        if cls != 114:                    # 114 = MonoBehaviour
-            continue
-        m = SCRIPT_GUID_RE.search(body)
-        if m:
-            out.add(m.group(1))
-    return out
-
-
 def comp_with(docs, gos, go_name, needle):
     """返回该 GameObject 上第一个正文含 needle 的组件 (fileID, 正文)。"""
     for fid in gos.get(go_name, []):
@@ -98,61 +96,21 @@ def comp_with(docs, gos, go_name, needle):
     return None, None
 
 
-def main():
-    if not os.path.exists(SCENE):
-        print(f'[FAIL] 找不到 {os.path.relpath(SCENE, ROOT)}')
-        return 1
+def rt_of(docs, comps):
+    """在组件列表里找 classId=224（RectTransform）的 fileID。"""
+    for fid in comps:
+        if docs.get(fid, (None, ''))[0] == 224:
+            return fid
+    return None
 
-    docs, gos, go_count = parse_scene(SCENE)
-    login_docs, login_gos, _ = parse_scene(LOGIN_SCENE)
 
-    print(f'场景 {os.path.relpath(SCENE, ROOT)}：{go_count} 个 GameObject'
-          f'（{len(gos)} 个不重名）\n')
+# ---------------------------------------------------------------- 判据集合
 
-    # ---- 0. 素材 / 脚本是否都已被引擎导入（有 .meta）-----------------------
-    need_meta = ('Assets/Art/V2/UI/v2_ui_joystick_base.png',
-                 'Assets/Art/V2/UI/v2_ui_joystick_knob.png',
-                 'Assets/Scripts/Controls/VirtualJoystick.cs',
-                 'Assets/Scripts/Gameplay/PlayerController.cs',
-                 'Assets/Scripts/Gameplay/CameraFollow.cs')
-    miss = [p for p in need_meta if not guid_of(p)]
-    if miss:
-        print('[FAIL] 缺 .meta：' + '、'.join(os.path.basename(p) for p in miss)
-              + ' —— 请先在编辑器里打开一次工程，让引擎导入新素材与新脚本，再跑一键生成。')
-        return 1
-
-    # ---- 0b. 场景里不能有 Missing Script（m_Script 只有 fileID、没有 guid）--
-    # 典型成因：MonoBehaviour 类名与文件名不一致（CameraFollow 曾和 PlayerAppearance
-    # 挤在同一个 .cs 里），引擎生成不出 MonoScript 资产，序列化后只剩 fileID，
-    # 进游戏就报 "The referenced script (Unknown) on this Behaviour is missing!"。
-    orphan = []
-    for fid, (cls, body) in docs.items():
-        if cls != 114:
-            continue
-        if SCRIPT_GUID_RE.search(body):
-            continue
-        go = re.search(r'm_GameObject: \{fileID: (\d+)\}', body)
-        onm = '?'
-        if go and int(go.group(1)) in docs:
-            nm = NAME_RE.search(docs[int(go.group(1))][1])
-            if nm:
-                onm = nm.group(1).strip()
-        orphan.append(f'{onm}(fileID {fid})')
-    check('场景里没有 Missing Script', not orphan,
-          '、'.join(orphan) if orphan else '每个 MonoBehaviour 都带有效 guid')
-
-    # ---- 1. 结构：五个必需节点 --------------------------------------------
+def check_common(docs, gos):
+    """三个玩法场景共用的 HUD / 玩家判据。"""
     for name in ('Canvas', 'EventSystem', 'Joystick', 'Base', 'Knob'):
         check(f'存在 GameObject「{name}」', name in gos)
 
-    if 'Joystick' not in gos:
-        print('\n场景里没有 Joystick —— 说明场景还是旧的，请重跑 Tools/LuminousSSS/一键生成（资源 + 场景）。')
-        return 1
-
-    # ---- 2. Canvas 必备组件 ----------------------------------------------
-    # 不再要求「和登录场景 guid 集合完全相等」——登录 Canvas 上还挂着角色选择
-    # 预览这类业务脚本，农场本来就不需要。只校验通用必备件：
-    #   CanvasScaler（下面单独查参数）+ GraphicRaycaster（收点击）+ UIFontFixer（中文字体）
     canvas_comps = [docs.get(f, (None, '')) for f in gos.get('Canvas', [])]
     check('Canvas 有 GraphicRaycaster（否则点不到按钮）',
           any(c == 114 and 'm_BlockingMask' in b for c, b in canvas_comps),
@@ -161,7 +119,6 @@ def main():
     check('Canvas 挂了 3 个通用组件（Scaler / Raycaster / UIFontFixer）', n_mb >= 3,
           f'实测 {n_mb} 个 MonoBehaviour')
 
-    # ---- 3. CanvasScaler：1920x1080 / 按高度适配 --------------------------
     _, scaler = comp_with(docs, gos, 'Canvas', 'm_MatchWidthOrHeight')
     if scaler:
         res = re.search(r'm_ReferenceResolution: \{x: ([\d.]+), y: ([\d.]+)\}', scaler)
@@ -173,8 +130,6 @@ def main():
     else:
         check('CanvasScaler 存在', False, 'Canvas 上没找到 CanvasScaler')
 
-    # ---- 4. Joystick：脚本 + 全透明热区 + 左下角锚定 ----------------------
-    # 用序列化字段特征认 VirtualJoystick（knobRadius 是它独有的），不比对 guid。
     joy_comps = [docs.get(f, (None, '')) for f in gos.get('Joystick', [])]
     check('Joystick 挂了 VirtualJoystick',
           any(c == 114 and 'knobRadius' in b for c, b in joy_comps),
@@ -197,7 +152,6 @@ def main():
     else:
         check('Joystick 的 RectTransform 存在', False)
 
-    # ---- 5. VirtualJoystick 的参数与 knob 引用 ----------------------------
     joy_body = None
     for fid in gos.get('Joystick', []):
         cls, body = docs.get(fid, (None, ''))
@@ -218,38 +172,158 @@ def main():
     else:
         check('VirtualJoystick 组件正文可读', False)
 
-    # ---- 6. 底圈 / 摇杆头：素材引用 + 不参与拾取 --------------------------
-    SPRITE_RE = re.compile(r'm_Sprite: \{fileID: -?\d+, guid: ([A-Za-z0-9+/=]+)')
     for name in ('Base', 'Knob'):
         body = ''.join(docs.get(f, (None, ''))[1] for f in gos.get(name, []))
         m = SPRITE_RE.search(body)
-        check(f'{name} 的 Image 引用了摇杆素材', bool(m), f'sprite guid={m.group(1)[:12]}…' if m else 'm_Sprite 为空')
+        check(f'{name} 的 Image 引用了摇杆素材', bool(m),
+              f'sprite guid={m.group(1)[:12]}…' if m else 'm_Sprite 为空')
         check(f'{name} raycastTarget = 0（不抢触摸）',
               bool(re.search(r'm_RaycastTarget: 0', body)),
               '摇杆视觉层不能挡住热区')
 
-    # ---- 7. 玩家：PlayerController 在位（用 moveSpeed 字段认） --------------
-    plc_comps = [docs.get(f, (None, '')) for f in gos.get('Player', [])]
+    plc = [docs.get(f, (None, '')) for f in gos.get('Player', [])]
     check('Player 挂了 PlayerController',
-          any(c == 114 and 'moveSpeed' in b for c, b in plc_comps),
-          '看 moveSpeed 字段')
+          any(c == 114 and 'moveSpeed' in b for c, b in plc), '看 moveSpeed 字段')
+    check('Player 挂了 PlayerInteractor（v0.12 起统一交互）',
+          any(c == 114 and 'interactRange' in b for c, b in plc), '看 interactRange 字段')
 
-    # ---- 汇总 --------------------------------------------------------------
-    bad = [r for r in RESULTS if not r[1]]
-    print(f'\n共 {len(RESULTS)} 项，失败 {len(bad)} 项')
-    if bad:
-        print('结论：FAIL —— ' + '；'.join(r[0] for r in bad))
+    # HUD 交互按钮（v0.14 由 ChopButton 改名）——驱动上必带 label 引用（Text）
+    act = [docs.get(f, (None, '')) for f in gos.get('InteractButton', [])]
+    check('存在 HUD「InteractButton」且挂了 InteractButtonDriver',
+          any(c == 114 and re.search(r'^  label: \{fileID: \d+', b, re.M) for c, b in act),
+          '看 label 引用')
+
+    # Missing Script 检查（类名与文件名不一致时会踩）
+    orphan = []
+    for fid, (cls, body) in docs.items():
+        if cls != 114 or SCRIPT_GUID_RE.search(body):
+            continue
+        go = re.search(r'm_GameObject: \{fileID: (\d+)\}', body)
+        onm = '?'
+        if go and int(go.group(1)) in docs:
+            nm = NAME_RE.search(docs[int(go.group(1))][1])
+            if nm:
+                onm = nm.group(1).strip()
+        orphan.append(f'{onm}(fileID {fid})')
+    check('场景里没有 Missing Script', not orphan,
+          '、'.join(orphan) if orphan else '每个 MonoBehaviour 都带有效 guid')
+
+
+def check_portal(docs, gos, go_name, want_scene, want_spawn):
+    fid, body = comp_with(docs, gos, go_name, 'targetScene')
+    if not body:
+        check(f'传送点「{go_name}」存在且挂了 ScenePortal', False, '没找到目标物体或缺少 targetScene 字段')
+        return
+    t = re.search(r'targetScene: (\S*)', body)
+    s = re.search(r'spawnPointId: (\S*)', body)
+    ok = bool(t and s and t.group(1) == want_scene and s.group(1) == want_spawn)
+    check(f'传送点「{go_name}」→ {want_scene}/{want_spawn}', ok,
+          f'实测 {t.group(1) if t else "?"}/{s.group(1) if s else "?"}')
+
+    # 触发区必须是 isTrigger，否则会挡路
+    go_comps = gos.get(go_name, [])
+    box = [docs.get(f, (None, ''))[1] for f in go_comps if docs.get(f, (None, ''))[0] == 61]
+    check(f'「{go_name}」的 BoxCollider2D 是 isTrigger（不挡路）',
+          bool(box and re.search(r'm_IsTrigger: 1', box[0])),
+          f'找到 {len(box)} 个 BoxCollider2D')
+
+
+def check_spawn(docs, gos, go_name, want_id):
+    for fid in gos.get(go_name, []):
+        cls, body = docs.get(fid, (None, ''))
+        if cls == 114 and 'facing' in body:
+            # 注意：不能用 \bid: 匹配 —— 「guid: xxx」里也含 "id: "，
+            # 会把 guid 误当成出生点 id。这里锚定行首两空格缩进。
+            m = re.search(r'^  id: (\S+)$', body, re.M)
+            check(f'出生点「{go_name}」id = {want_id}', bool(m and m.group(1) == want_id),
+                  f'实测 {m.group(1) if m else "?"}')
+            return
+    check(f'出生点「{go_name}」存在且挂了 PlayerSpawnPoint', False, '没找到目标物体')
+
+
+def check_camera_bounds(docs, gos, want_max):
+    _, body = comp_with(docs, gos, 'Main Camera', 'smoothTime')
+    if not body:
+        check('相机挂了 CameraFollow', False)
+        return
+    check('相机挂了 CameraFollow', True)
+    ub = re.search(r'useBounds: (\d)', body)
+    mx = re.search(r'max: \{x: ([\d.-]+), y: ([\d.-]+)\}', body)
+    ok = bool(ub and ub.group(1) == '1' and mx
+              and abs(float(mx.group(1)) - want_max[0]) < 0.01
+              and abs(float(mx.group(2)) - want_max[1]) < 0.01)
+    check(f'相机 bounds 锁到房间尺寸 {want_max}', ok,
+          f'useBounds={ub.group(1) if ub else "?"}, max=({mx.group(1)},{mx.group(2)})' if mx else '读不到 max')
+
+
+def check_house_extra(docs, gos, floor):
+    # 团结引擎把 Tilemap / Grid 这类组件写成了「字段哈希」classId
+    # （Tilemap = 1839735485、Grid = 156049354），不是老 Unity 的 183 —— 两种都认。
+    tiles = [1 for cls, _ in docs.values() if cls in (183, 1839735485)]
+    check(f'{floor} 有地板 Tilemap', len(tiles) >= 1, f'找到 {len(tiles)} 个 Tilemap')
+
+    # 家具 = 带 SpriteRenderer 的物件（地毯/家具/墙饰）
+    sprites = sum(1 for cls, body in docs.values() if cls == 212)   # 212 = SpriteRenderer
+    check(f'{floor} 摆了家具（SpriteRenderer ≥ 10）', sprites >= 10, f'实测 {sprites} 个 SpriteRenderer')
+
+    check_camera_bounds(docs, gos, (26.0, 14.0))
+
+
+def main():
+    farm_only = '--farm-only' in sys.argv
+
+    need_meta = ('Assets/Art/V2/UI/v2_ui_joystick_base.png',
+                 'Assets/Art/V2/UI/v2_ui_joystick_knob.png',
+                 'Assets/Art/V2/Interior/v2_in_floor_wood_a.png',
+                 'Assets/Scripts/Controls/VirtualJoystick.cs',
+                 'Assets/Scripts/Gameplay/PlayerController.cs',
+                 'Assets/Scripts/Gameplay/CameraFollow.cs',
+                 'Assets/Scripts/Gameplay/ScenePortal.cs',
+                 'Assets/Scripts/Core/SceneFlow.cs')
+    miss = [p for p in need_meta if not guid_of(p)]
+    if miss:
+        print('[FAIL] 缺 .meta：' + '、'.join(os.path.basename(p) for p in miss)
+              + ' —— 请先在编辑器里打开一次工程，让引擎导入新素材与新脚本，再跑生成菜单。')
         return 1
-    print('结论：PASS —— 农场场景已具备手机端移动输入（Canvas + EventSystem + 左下角虚拟摇杆）')
+
+    targets = [(FARM, '农场')]
+    if not farm_only:
+        targets += [(HOUSE1F, '小洋楼 1F'), (HOUSE2F, '小洋楼 2F')]
+
+    for path, label in targets:
+        if not os.path.exists(path):
+            print(f'[FAIL] 找不到 {os.path.relpath(path, ROOT)}（{label}）')
+            return 1
+
+        RESULTS.clear()
+        docs, gos, go_count = parse_scene(path)
+        print(f'\n===== {label}：{os.path.relpath(path, ROOT)}'
+              f'（{go_count} 个 GameObject / {len(gos)} 个不重名）=====')
+        check_common(docs, gos)
+
+        if path == FARM:
+            check_portal(docs, gos, 'DoorToHouse', 'House1FScene', 'Default')
+            check_spawn(docs, gos, 'Spawn_Door', 'Door')
+            check_camera_bounds(docs, gos, (40.0, 24.0))
+        elif path == HOUSE1F:
+            check_portal(docs, gos, 'DoorToFarm', 'FarmScene', 'Door')
+            check_portal(docs, gos, 'StairsTo2F', 'House2FScene', 'Default')
+            check_spawn(docs, gos, 'Spawn_Default', 'Default')
+            check_spawn(docs, gos, 'Spawn_Stairs', 'Stairs')
+            check_house_extra(docs, gos, '1F')
+        else:
+            check_portal(docs, gos, 'StairsTo1F', 'House1FScene', 'Stairs')
+            check_spawn(docs, gos, 'Spawn_Default', 'Default')
+            check_house_extra(docs, gos, '2F')
+
+        bad = [r for r in RESULTS if not r[1]]
+        print(f'—— {label}：{len(RESULTS)} 项，失败 {len(bad)} 项')
+        if bad:
+            print(f'结论：FAIL —— ' + '；'.join(r[0] for r in bad))
+            return 1
+
+    print('\n结论：PASS —— 农场与两层小洋楼的结构、HUD、传送链路全部就位')
     return 0
-
-
-def rt_of(docs, comps):
-    """在组件列表里找 classId=224（RectTransform）的 fileID。"""
-    for fid in comps:
-        if docs.get(fid, (None, ''))[0] == 224:
-            return fid
-    return None
 
 
 if __name__ == '__main__':

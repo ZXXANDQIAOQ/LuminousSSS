@@ -12,7 +12,7 @@ namespace LuminousSSS
     /// 场景里的树是 SpriteRenderer 裸对象，挂 Animator 反而要多养一个控制器。
     /// </summary>
     [DisallowMultipleComponent]
-    public class TreeChop : MonoBehaviour
+    public class TreeChop : MonoBehaviour, IInteractable
     {
         /// <summary>已砍树木 id 列表在 PlayerPrefs 里的键（逗号分隔的 "x_y" 坐标）。</summary>
         public const string PrefChopped = "LuminousSSS.ChoppedTrees";
@@ -42,6 +42,17 @@ namespace LuminousSSS
 
         /// <summary>剩余可砍次数。</summary>
         public int HitsLeft { get; private set; }
+
+        // ------------------------------------------------------------ IInteractable
+        // 砍树走的是与门/楼梯同一套交互体系（PlayerInteractor 扫 IInteractable）。
+        // 冷却（hitInterval）也算进 CanInteract：砍击动画期间按钮灰一下，
+        // 玩家能看出「这一下已经在砍了」，不会以为丢输入。
+
+        public string Prompt => "砍伐";
+
+        public bool CanInteract => !IsChopped && CanChop();
+
+        public void Interact(PlayerInteractor who) => Chop();
 
         private SpriteRenderer _sr;
         private BoxCollider2D _col;

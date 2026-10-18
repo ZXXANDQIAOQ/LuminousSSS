@@ -103,6 +103,18 @@ namespace LuminousSSS.EditorTools
         const int PathTop = 14;
         const float HouseDoorX = 30f;        // 木屋门（底部中心）的世界 x
 
+        // ---- 小洋楼室内（v0.14）：26 x 14 格，后墙占 2 行，内部可走 24 x 12
+        // 相机视野高 = 房间高（orthographicSize 7.0 → 14 格），整间屋子一屏看全：
+        // 室内是小空间，跟随镜头反而让人看不全后墙 —— 实测 12 格视野时站在门口
+        // 完全看不到壁炉/书架（家具都在 y 12..14）。星露谷的室内也是固定视角。
+        // 改这里的尺寸，记得同步 Tools/check_farm_hud.py 里的 bounds 期望值。
+        const int RoomW = 26;
+        const int RoomH = 14;
+        const int RoomWallRows = 2;
+        const float RoomCamSize = 7.0f;
+        const float RoomDoorX = 13f;         // 一楼大门（底部中心）
+        const float RoomStairsX = 22.5f;     // 楼梯（右上角）
+
     // ---- 农场 HUD（虚拟摇杆）
     // 尺寸与素材 1:1（gen_ui_joystick.py 出 288 / 128），Point 过滤下不会出现非整数缩放毛边
     const float JoystickTouchSize = 480f;   // 触摸热区边长（隐形，比底圈大一圈，手指不用瞄准）
@@ -127,8 +139,7 @@ namespace LuminousSSS.EditorTools
         }
 
         [MenuItem("Tools/LuminousSSS/2. 生成游戏场景", false, 200)]
-        public static void BuildAll()
-        {
+        public static void BuildAll()        {
             if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
                 return;
 
@@ -138,12 +149,14 @@ namespace LuminousSSS.EditorTools
             EnsureCharacterControllers();    // 控制器：每角色一个四方向状态机
             BuildLoginScene();
             BuildFarmScene();
+            BuildHouseScenes();          // v0.14：小洋楼 1F / 2F
             RegisterBuildScenes();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
             EditorSceneManager.OpenScene(ScenesDir + "/LoginScene.scene");
-            Debug.Log("[LuminousSSS] 场景生成完成：Assets/Scenes/LoginScene.scene 与 FarmScene.scene（已为你打开 LoginScene，直接点播放即可）。");
+            Debug.Log("[LuminousSSS] 场景生成完成：LoginScene / FarmScene / House1FScene / House2FScene"
+                      + "（已为你打开 LoginScene，直接点播放即可）。");
         }
 
         /// <summary>
@@ -177,7 +190,29 @@ namespace LuminousSSS.EditorTools
             RegisterBuildScenes();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/LoginScene.scene（农场场景未动）。");
+            Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/LoginScene.scene（农场 / 房间场景未动）。");
+        }
+
+        /// <summary>重建两层小洋楼（1F 客厅厨房 + 2F 卧室书房）。</summary>
+        internal static void BuildHouseScenes()
+        {
+            BuildHouseScene(false);
+            BuildHouseScene(true);
+        }
+
+        /// <summary>只补建房间场景（AutoBuildScenes 用；不动登录 / 农场）。</summary>
+        [MenuItem("Tools/LuminousSSS/3. 生成小洋楼（1F + 2F）", false, 201)]
+        internal static void BuildHouseScenesOnly()
+        {
+            EnsureFolders();
+            EnsureTiles();
+            EnsureCharacterAnimations();
+            EnsureCharacterControllers();
+            BuildHouseScenes();
+            RegisterBuildScenes();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("[LuminousSSS] 已重建 House1FScene / House2FScene（登录 / 农场场景未动）。");
         }
 
         static void EnsureFolders()
@@ -208,6 +243,13 @@ namespace LuminousSSS.EditorTools
             MakeTile("v2_dirt_b", Art + "V2/Tiles/fill_dirt_b.png");   // 土块填充（变体）
             MakeTile("v2_sand", Art + "V2/Tiles/fill_sand.png");       // 浅沙土（土路）
             MakeTile("v2_cobble", Art + "V2/Tiles/tile_r06c05.png");   // 鹅卵石（石墙）
+
+            // 室内（小洋楼一层 / 二层）—— 由 Tools/gen_house_interior.py 程序化生成
+            MakeTile("v2_in_floor_wood_a", Art + "V2/Interior/v2_in_floor_wood_a.png");
+            MakeTile("v2_in_floor_wood_b", Art + "V2/Interior/v2_in_floor_wood_b.png");
+            MakeTile("v2_in_floor_tile",   Art + "V2/Interior/v2_in_floor_tile.png");
+            MakeTile("v2_in_wall_paper",   Art + "V2/Interior/v2_in_wall_paper.png");
+            MakeTile("v2_in_wall_wood",    Art + "V2/Interior/v2_in_wall_wood.png");
         }
 
         static Tile MakeTile(string name, string spritePath)
@@ -700,7 +742,7 @@ namespace LuminousSSS.EditorTools
             EnsureAudioManager();
 
             // 农场场景原本没有任何 Canvas —— 手机端因此拿不到任何移动输入（v0.10 的已知缺陷）。
-            BuildFarmHud();
+            BuildGameHud();
 
             // ---- 地面 Tilemap
             var gridGO = new GameObject("Grid", typeof(Grid));
@@ -803,56 +845,17 @@ namespace LuminousSSS.EditorTools
             MakeWall(bounds, "WallLeft", new Vector2(-0.5f, MapH / 2f), new Vector2(1, MapH + 4));
             MakeWall(bounds, "WallRight", new Vector2(MapW + 0.5f, MapH / 2f), new Vector2(1, MapH + 4));
 
+            // ---- v0.14 进屋：木屋门口的可交互区 + 从屋里出来的落点
+            // 触发区不挡路（isTrigger），只负责让 PlayerInteractor 扫到 → HUD 按钮写成「进入」。
+            // 位置取门口下方一格里（房子碰撞盒底在 y=14，玩家最远只能走到 13.x）。
+            MakePortal(props, "DoorToHouse", new Vector2(HouseDoorX, 13.3f), new Vector2(2.8f, 1.6f),
+                       "进入", GameData.SceneHouse1F, GameData.SpawnDefault);
+
+            var spawns = new GameObject("Spawns").transform;
+            MakeSpawn(spawns, "Spawn_Door", new Vector3(HouseDoorX, 12.5f, 0f), GameData.SpawnDoor, Vector2.down);
+
             // ---- 玩家（出生在木屋门口土路上，面向下方）
-            var player = new GameObject("Player", typeof(Rigidbody2D), typeof(CircleCollider2D),
-                                        typeof(PlayerController), typeof(PlayerAppearance),
-                                        typeof(YSort), typeof(CharacterAnimDriver),
-                                        typeof(PlayerInteractor));   // v0.12：砍树交互（E 键 / HUD 按钮）
-            player.transform.position = new Vector3(HouseDoorX, 12.5f, 0f);
-
-            var visual = new GameObject("Visual", typeof(SpriteRenderer), typeof(Animator));
-            visual.transform.SetParent(player.transform, false);
-            visual.transform.localPosition = new Vector3(0f, 0.75f, 0f);
-            var sr = visual.GetComponent<SpriteRenderer>();
-            sr.sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png");
-            sr.sortingOrder = 10;
-
-            // 动画：先停用，由 PlayerAppearance 按所选角色启用对应控制器。
-            // 每个角色都有自己的控制器（见 EnsureCharacterControllers），
-            // 缺帧的角色 controller 为 null → CharacterAnimDriver 走 flipX + bob 兜底。
-            var anim = visual.GetComponent<Animator>();
-            anim.runtimeAnimatorController = CtrlOf("001");
-            anim.enabled = false;
-
-            var cc = player.GetComponent<CircleCollider2D>();
-            cc.radius = 0.32f;
-            cc.offset = new Vector2(0f, 0.45f);
-
-            // CharacterAnimDriver 自己会在子物体里找 SpriteRenderer / Animator / PlayerController：
-            // 有 controller 的角色走四方向动画；无 controller 的走 flipX + 走路小跳。
-            var driver = player.GetComponent<CharacterAnimDriver>();
-            driver.bobHeight = 0.06f;   // 约 4 像素（V2 素材 64 PPU）
-            driver.bobFrequency = 8f;
-
-            var pa = player.GetComponent<PlayerAppearance>();
-            pa.target = sr;
-            pa.animator = anim;
-            pa.entries = new[]
-            {
-                new PlayerAppearance.Entry { id = "001", sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png"),
-                                             controller = CtrlOf("001") },
-                new PlayerAppearance.Entry { id = "002", sprite = WorldSpriteOf("rain", "Characters/char_002_rain_maiden.png"),
-                                             controller = CtrlOf("002") },
-                new PlayerAppearance.Entry { id = "003", sprite = WorldSpriteOf("adventurer", "Characters/char_003_adventurer.png"),
-                                             controller = CtrlOf("003") },
-                new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = CtrlOf("004") },
-            };
-
-            // Y 轴动态排序（与物件烘焙公式一致：MapH * 10 - y * 10）
-            var ys = player.GetComponent<YSort>();
-            ys.target = sr;
-            ys.multiplier = 10f;
-            ys.offset = MapH * 10;
+            var player = CreatePlayer(new Vector3(HouseDoorX, 12.5f, 0f), MapH);
 
             var follow = camGO.GetComponent<CameraFollow>();
             follow.target = player.transform;
@@ -871,8 +874,183 @@ namespace LuminousSSS.EditorTools
             EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.scene");
         }
 
+        // ------------------------------------------------------------ 小洋楼室内（v0.14）
+
         /// <summary>
-        /// 农场场景的 HUD 层（Canvas + EventSystem + 虚拟摇杆）。
+        /// 小洋楼室内场景：一层（客厅 + 餐区 + 厨房）与二层（卧室 + 书房）。
+        ///
+        /// 为什么拆成两个场景而不是同场景并排叠两层：
+        ///   1) 上下楼换场景是这个类型的惯例，玩家的空间感一致；
+        ///   2) 相机只需要一套 bounds，不必在楼梯口动态改边界；
+        ///   3) 将来替换真实美术时，一层客厅与二层卧室可以各自单独改，互不牵连。
+        ///
+        /// 室内规则（与农场完全对齐）：
+        ///   - 1 tile = 1 格 = 64px（PPU 64，由 PixelArtImporter 按 V2 路径自动判定）；
+        ///   - 家具一律「底部对齐 groundY + Y 排序」，与玩家同一套公式 → 站到家具后面会被遮住；
+        ///   - 后墙 2 行：内侧那行用墙纸（带护墙板），最外那行用深木板当墙顶阴影；
+        ///   - 衣柜 / 书架 / 床这类实心家具给底部碰撞盒，玩家不会穿模走进去；
+        ///   - 窗户 / 挂画 / 挂钟底部对齐到 RoomH（墙顶），正好贴在墙面上。
+        ///
+        /// 布局（26 x 16，内部可走 x 1..25 / y 0..14）：
+        ///   1F：左后书架、中后壁炉、右后厨房台面、右上楼梯；中部沙发 + 地毯 + 茶几；右侧餐桌；
+        ///   2F：左后书架 + 床头柜、中后双人床 + 衣柜、右后书桌、右上楼梯；中部地毯 + 扶手椅。
+        /// </summary>
+        static void BuildHouseScene(bool secondFloor)
+        {
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            const string I = "V2/Interior/";
+
+            // ---- 相机：视野高 11 格，比农场（13 格）略近，室内空间才不显得空
+            var camGO = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(CameraFollow));
+            camGO.tag = "MainCamera";
+            var cam = camGO.GetComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = RoomCamSize;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.11f, 0.08f, 0.06f);   // 暖褐：像门缝里透出的室内暗部
+            camGO.transform.position = new Vector3(RoomW / 2f, RoomH / 2f - 1f, -10f);
+
+            EnsureAudioManager();
+            BuildGameHud();
+
+            // ---- 地板 / 墙（同一张 Tilemap，墙体只是不同 tile）
+            var gridGO = new GameObject("Grid", typeof(Grid));
+            var tmGO = new GameObject("Floor", typeof(Tilemap), typeof(TilemapRenderer));
+            tmGO.transform.SetParent(gridGO.transform, false);
+            var tm = tmGO.GetComponent<Tilemap>();
+            tmGO.GetComponent<TilemapRenderer>().sortingOrder = -100;
+
+            var floorA = A<Tile>(TilesDir + "/v2_in_floor_wood_a.asset");
+            var floorB = A<Tile>(TilesDir + "/v2_in_floor_wood_b.asset");
+            var wallPaper = A<Tile>(TilesDir + "/v2_in_wall_paper.asset");
+            var wallWood = A<Tile>(TilesDir + "/v2_in_wall_wood.asset");
+
+            // 木地板铺满内部，两种板纹按坐标哈希混铺（同一素材平铺一整片会看出规律）
+            for (int x = 1; x < RoomW; x++)
+                for (int y = 0; y < RoomH - RoomWallRows; y++)
+                {
+                    int h = Mathf.Abs(x * 73856093 ^ y * 19349663) % 100;
+                    tm.SetTile(new Vector3Int(x, y, 0), h < 55 ? floorA : floorB);
+                }
+
+            // 后墙：内侧一行墙纸（带护墙板），最外一行深木板（墙顶阴影）
+            for (int x = 0; x < RoomW; x++)
+            {
+                tm.SetTile(new Vector3Int(x, RoomH - RoomWallRows, 0), wallPaper);
+                tm.SetTile(new Vector3Int(x, RoomH - 1, 0), wallWood);
+            }
+            // 左右侧墙：竖木板铺满整列
+            for (int y = 0; y < RoomH; y++)
+            {
+                tm.SetTile(new Vector3Int(0, y, 0), wallWood);
+                tm.SetTile(new Vector3Int(RoomW - 1, y, 0), wallWood);
+            }
+
+            // ---- 边界碰撞（与农场同一套 MakeWall；左右墙压在地板外沿）
+            var bounds = new GameObject("Bounds").transform;
+            MakeWall(bounds, "WallTop", new Vector2(RoomW / 2f, RoomH - 1f), new Vector2(RoomW, 2));
+            MakeWall(bounds, "WallBottom", new Vector2(RoomW / 2f, -0.5f), new Vector2(RoomW, 1));
+            MakeWall(bounds, "WallLeft", new Vector2(0.5f, RoomH / 2f), new Vector2(1, RoomH));
+            MakeWall(bounds, "WallRight", new Vector2(RoomW - 0.5f, RoomH / 2f), new Vector2(1, RoomH));
+
+            var props = new GameObject("Props").transform;
+            var spawns = new GameObject("Spawns").transform;
+
+            // 室内统一用 RoomH 当排序基准（PlaceProp 的 orderBase）
+            void Put(string rel, float cx, float groundY, Vector2? col)
+                => PlaceProp(props, I + rel, cx, groundY, col, RoomH);
+
+            float wallFoot = RoomH - RoomWallRows;   // 墙脚：贴墙家具的 groundY
+
+            if (!secondFloor)
+            {
+                // ---- 一层
+                Put("v2_in_bookshelf.png",    2.5f, wallFoot, new Vector2(1.8f, 0.7f));
+                Put("v2_in_fireplace.png",    6.5f, wallFoot, new Vector2(2.6f, 0.8f));
+                Put("v2_in_counter.png",     19.0f, wallFoot, new Vector2(2.8f, 0.8f));
+                Put("v2_in_stairs_up.png",  RoomStairsX, wallFoot, new Vector2(2.6f, 1.0f));
+
+                // 墙饰：底部对齐墙顶 → 正好贴在墙面上（两扇窗 + 中间一幅画）
+                Put("v2_in_window.png",      11.0f, RoomH, null);
+                Put("v2_in_window.png",      15.0f, RoomH, null);
+                Put("v2_in_painting.png",    13.0f, RoomH, null);
+
+                // 客厅：地毯在最下层，沙发靠后墙一侧，茶几在中间
+                Put("v2_in_rug_red.png",      7.5f, 2.4f, null);
+                Put("v2_in_sofa.png",         7.5f, 7.6f, new Vector2(3.8f, 0.9f));
+                Put("v2_in_coffee_table.png", 7.5f, 4.4f, new Vector2(2.6f, 0.8f));
+                Put("v2_in_floor_lamp.png",   3.4f, 7.6f, new Vector2(0.6f, 0.5f));
+                Put("v2_in_plant.png",        1.8f, 10.0f, new Vector2(1.0f, 0.5f));
+                Put("v2_in_plant.png",       12.2f, 1.4f, new Vector2(1.0f, 0.5f));
+
+                // 餐区（餐桌两侧各一把椅子）
+                Put("v2_in_dining_table.png", 18.5f, 5.6f, new Vector2(3.6f, 0.8f));
+                Put("v2_in_chair.png",        15.9f, 6.0f, new Vector2(0.7f, 0.5f));
+                Put("v2_in_chair.png",        21.1f, 6.0f, new Vector2(0.7f, 0.5f));
+
+                // 大门：半截在墙外，视觉上就是「你从这扇门进来的」
+                Put("v2_in_door.png", RoomDoorX, -0.6f, new Vector2(1.8f, 0.6f));
+
+                MakePortal(props, "DoorToFarm", new Vector2(RoomDoorX, 1.3f), new Vector2(2.6f, 1.5f),
+                           "出门", GameData.SceneFarm, GameData.SpawnDoor);
+                MakePortal(props, "StairsTo2F", new Vector2(RoomStairsX, 8.4f), new Vector2(2.8f, 1.5f),
+                           "上楼", GameData.SceneHouse2F, GameData.SpawnDefault);
+
+                // 从农场进来落门口（朝里走）；从二楼下来落楼梯口（朝下，正对房间）
+                MakeSpawn(spawns, "Spawn_Default", new Vector3(RoomDoorX, 3.4f, 0f), GameData.SpawnDefault, Vector2.up);
+                MakeSpawn(spawns, "Spawn_Stairs", new Vector3(RoomStairsX, 7.4f, 0f), GameData.SpawnStairs, Vector2.down);
+            }
+            else
+            {
+                // ---- 二层
+                Put("v2_in_stairs_down.png", RoomStairsX, wallFoot, new Vector2(2.6f, 1.0f));
+                Put("v2_in_bookshelf.png",    2.2f, wallFoot, new Vector2(1.8f, 0.7f));
+                Put("v2_in_bed.png",          7.0f, wallFoot, new Vector2(3.6f, 0.9f));
+                Put("v2_in_nightstand.png",   4.2f, wallFoot, new Vector2(1.2f, 0.5f));
+                Put("v2_in_table_lamp.png",   4.2f, wallFoot + 0.6f, null);   // 叠在床头柜面上
+                Put("v2_in_wardrobe.png",    11.5f, wallFoot, new Vector2(2.6f, 0.8f));
+                Put("v2_in_desk.png",        19.0f, wallFoot, new Vector2(2.8f, 0.7f));
+                Put("v2_in_chair.png",       19.0f, 9.8f, new Vector2(0.7f, 0.5f));
+
+                // 墙饰：一扇窗 + 一个挂钟（衣柜与书桌之间的空当）
+                Put("v2_in_window.png",      15.5f, RoomH, null);
+                Put("v2_in_clock.png",       13.2f, RoomH, null);
+
+                Put("v2_in_rug_red.png",     13.8f, 2.0f, null);
+                Put("v2_in_armchair.png",    13.8f, 6.2f, new Vector2(1.8f, 0.7f));
+                Put("v2_in_floor_lamp.png",  16.6f, 4.2f, new Vector2(0.6f, 0.5f));
+                Put("v2_in_plant.png",        1.8f, 3.0f, new Vector2(1.0f, 0.5f));
+
+                MakePortal(props, "StairsTo1F", new Vector2(RoomStairsX, 8.4f), new Vector2(2.8f, 1.5f),
+                           "下楼", GameData.SceneHouse1F, GameData.SpawnStairs);
+
+                // 二楼只有楼梯这一个入口：Default 与 Stairs 都落在楼梯口（朝向房间内侧）
+                MakeSpawn(spawns, "Spawn_Default", new Vector3(RoomStairsX, 7.4f, 0f), GameData.SpawnDefault, Vector2.left);
+                MakeSpawn(spawns, "Spawn_Stairs", new Vector3(RoomStairsX, 7.4f, 0f), GameData.SpawnStairs, Vector2.left);
+            }
+
+            // ---- 玩家 + 相机
+            var player = CreatePlayer(new Vector3(RoomDoorX, 6f, 0f), RoomH);
+
+            var follow = camGO.GetComponent<CameraFollow>();
+            follow.target = player.transform;
+            follow.useBounds = true;
+            follow.min = new Vector2(0f, 0f);
+            follow.max = new Vector2(RoomW, RoomH);
+            follow.snapOnStart = true;
+            follow.targetOffset = new Vector2(0f, 0.6f);
+            follow.lookAhead = 1.0f;      // 室内空间小，预判比农场收一点
+            follow.lookAheadSharpness = 4f;
+            follow.smoothTime = 0.15f;
+            follow.pixelGrid = 1f / 128f;
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, ScenesDir + "/" + (secondFloor ? GameData.SceneHouse2F : GameData.SceneHouse1F) + ".scene");
+        }
+
+        /// <summary>
+        /// 游戏 HUD 层（Canvas + EventSystem + 虚拟摇杆 + 交互按钮）。农场 / 一楼 / 二楼共用。
         ///
         /// 为什么必须单独建：农场场景在 v0.10 之前**完全没有 Canvas 也没有 EventSystem**，
         /// 移动全靠键盘轴，安卓包里既没有按键也收不到指针事件 —— 玩家在手机上无法移动。
@@ -883,11 +1061,11 @@ namespace LuminousSSS.EditorTools
         ///
         /// 横屏是硬性前提（v0.13.1 起由工程设置保证）：matchWidthOrHeight = 1.0 按高度适配，
         /// 竖屏 1080x1920 时画布宽只剩 1080×(1080/1920) ≈ 608 ——
-        /// 摇杆热区（480，占 x 40..520）会和右下砍伐按钮（360，左边界 608-56-360=192）直接重叠，
+        /// 摇杆热区（480，占 x 40..520）会和右下交互按钮（360，左边界 608-56-360=192）直接重叠，
         /// 而且两个触摸热区会互相抢事件。ProjectSettings 已锁「AutoRotation + 只允许左右横屏」。
         /// 若将来要支持竖屏，HUD 必须重排（摇杆与按钮不能同时贴底），不是调一个尺寸能解决的。
         /// </summary>
-        static void BuildFarmHud()
+        static void BuildGameHud()
         {
             var canvasGO = new GameObject("Canvas", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
             var canvas = canvasGO.GetComponent<Canvas>();
@@ -938,47 +1116,49 @@ namespace LuminousSSS.EditorTools
             joy.radius = JoystickBaseSize * 0.5f;       // 底圈半径 = 行程基准
             joy.knobRadius = JoystickKnobSize * 0.5f;   // 可用行程 = 144 - 64 = 80 UI 像素
 
-            // ---- 砍伐按钮（v0.12）：右下角，与左下摇杆对称
-            // 田地初始被树木覆盖，砍伐是进场景后的第一个核心操作，按钮必须常驻 HUD。
-            // 进场时没有可砍目标 → interactable=false（半透明），ChopButtonDriver 每 0.1s 按目标刷新。
-            var chopGO = new GameObject("ChopButton",
-                                        typeof(RectTransform), typeof(Image), typeof(Button),
-                                        typeof(ChopButtonDriver));
-            chopGO.transform.SetParent(root, false);
-            var chopRt = chopGO.GetComponent<RectTransform>();
-            chopRt.anchorMin = chopRt.anchorMax = new Vector2(1f, 0f);   // 锚右下角
-            chopRt.pivot = new Vector2(1f, 0f);
-            chopRt.sizeDelta = new Vector2(ChopButtonW, ChopButtonH);
-            chopRt.anchoredPosition = new Vector2(-(JoystickInset + 16f), JoystickInset);
+            // ---- 交互按钮（v0.12 加、v0.14 通用化）：右下角，与左下摇杆对称
+            // 一个按钮盖住所有交互（砍树 / 进屋 / 上楼 / 下楼 / 出门），
+            // 文字由 InteractButtonDriver 按当前目标改写，没有目标时显示「交互」并变灰。
+            var actGO = new GameObject("InteractButton",
+                                       typeof(RectTransform), typeof(Image), typeof(Button),
+                                       typeof(InteractButtonDriver));
+            actGO.transform.SetParent(root, false);
+            var actRt = actGO.GetComponent<RectTransform>();
+            actRt.anchorMin = actRt.anchorMax = new Vector2(1f, 0f);   // 锚右下角
+            actRt.pivot = new Vector2(1f, 0f);
+            actRt.sizeDelta = new Vector2(ChopButtonW, ChopButtonH);
+            actRt.anchoredPosition = new Vector2(-(JoystickInset + 16f), JoystickInset);
 
-            var chopImg = chopGO.GetComponent<Image>();
-            chopImg.sprite = S(UiBtnWood);
-            chopImg.type = Image.Type.Sliced;
-            chopImg.pixelsPerUnitMultiplier = UiPpu;    // 与登录按钮一致：边框按素材原始像素 1:1
-            chopImg.raycastTarget = true;
+            var actImg = actGO.GetComponent<Image>();
+            actImg.sprite = S(UiBtnWood);
+            actImg.type = Image.Type.Sliced;
+            actImg.pixelsPerUnitMultiplier = UiPpu;    // 与登录按钮一致：边框按素材原始像素 1:1
+            actImg.raycastTarget = true;
 
-            var chopBtn = chopGO.GetComponent<Button>();
-            chopBtn.targetGraphic = chopImg;
-            chopBtn.colors = MakeButtonColors();
-            chopBtn.interactable = false;
+            var actBtn = actGO.GetComponent<Button>();
+            actBtn.targetGraphic = actImg;
+            actBtn.colors = MakeButtonColors();
+            actBtn.interactable = false;               // 进场时站在门口/树旁由驱动刷新
 
-            var chopLabelGO = new GameObject("Label", typeof(RectTransform), typeof(Text));
-            chopLabelGO.transform.SetParent(chopGO.transform, false);
-            var chopLabelRt = chopLabelGO.GetComponent<RectTransform>();
-            chopLabelRt.anchorMin = chopLabelRt.anchorMax = new Vector2(0.5f, 0.5f);
-            chopLabelRt.pivot = new Vector2(0.5f, 0.5f);
-            chopLabelRt.sizeDelta = new Vector2(ChopButtonW - 24f, ChopButtonH - 24f);
-            chopLabelRt.anchoredPosition = Vector2.zero;
-            Style(chopLabelGO.GetComponent<Text>(), "砍  伐", 44, TextAnchor.MiddleCenter, WoodTextColor);
-            AddOutline(chopLabelGO.GetComponent<Text>(), WoodTextOutline, 2f);
+            var actLabelGO = new GameObject("Label", typeof(RectTransform), typeof(Text));
+            actLabelGO.transform.SetParent(actGO.transform, false);
+            var actLabelRt = actLabelGO.GetComponent<RectTransform>();
+            actLabelRt.anchorMin = actLabelRt.anchorMax = new Vector2(0.5f, 0.5f);
+            actLabelRt.pivot = new Vector2(0.5f, 0.5f);
+            actLabelRt.sizeDelta = new Vector2(ChopButtonW - 24f, ChopButtonH - 24f);
+            actLabelRt.anchoredPosition = Vector2.zero;
+            var actLabel = actLabelGO.GetComponent<Text>();
+            Style(actLabel, "交互", 44, TextAnchor.MiddleCenter, WoodTextColor);
+            AddOutline(actLabel, WoodTextOutline, 2f);
 
             // 持久监听：运行时 onClick.AddListener 不会被序列化，保存场景后丢失，
             // 必须用 UnityEventTools 写进 m_OnClick.m_PersistentCalls。
             // 用 AddVoidPersistentListener（无参 void 方法的追加式重载）—— 
             // RegisterPersistentListener 只有 (UnityEvent, int, UnityAction) 这个 3 参版本，没有「目标+方法名」的 4 参重载。
-            var chopDriver = chopGO.GetComponent<ChopButtonDriver>();
+            var actDriver = actGO.GetComponent<InteractButtonDriver>();
+            actDriver.label = actLabel;
             UnityEventTools.AddVoidPersistentListener(
-                chopBtn.onClick, chopDriver.OnClickChop);
+                actBtn.onClick, actDriver.OnClickInteract);
         }
 
         /// <summary>锚点与轴心都取 (0.5,0.5) 的 UI 元素 —— 相对父节点居中。</summary>
@@ -997,8 +1177,11 @@ namespace LuminousSSS.EditorTools
         /// <summary>
         /// 摆一个物件：sprite 按「底部对齐到 groundY」放置，排序按 groundY 烘焙
         /// （与玩家的 YSort 公式一致）。collider 非空时加一个底部碰撞盒（宽 x 高）。
+        /// <paramref name="orderBase"/> = 场景地图高度；室内场景要用自己的高度（26x16 → 16），
+        /// 否则排序基准和玩家的 YSort.offset 对不上，家具会整片盖住人。
         /// </summary>
-        static void PlaceProp(Transform parent, string rel, float tileX, float groundY, Vector2? collider)
+        static void PlaceProp(Transform parent, string rel, float tileX, float groundY, Vector2? collider,
+                              int orderBase = 0)
         {
             var sp = S(rel);
             if (sp == null) { Debug.LogWarning("[LuminousSSS] 缺少素材: " + rel); return; }
@@ -1010,7 +1193,8 @@ namespace LuminousSSS.EditorTools
             float h = sp.rect.height / sp.pixelsPerUnit;
             go.transform.position = new Vector3(tileX, groundY + h * 0.5f, 0f);
             // 越靠下越晚渲染，避免互相穿插时穿帮
-            sr.sortingOrder = Mathf.RoundToInt((MapH - groundY) * 10f);
+            int baseH = orderBase > 0 ? orderBase : MapH;
+            sr.sortingOrder = Mathf.RoundToInt((baseH - groundY) * 10f);
 
             if (collider.HasValue)
             {
@@ -1128,6 +1312,100 @@ namespace LuminousSSS.EditorTools
             go.transform.SetParent(parent, false);
             go.transform.position = center;
             go.GetComponent<BoxCollider2D>().size = size;
+        }
+
+        /// <summary>
+        /// 造一个场景传送点：isTrigger 的 BoxCollider2D（接近检测区）+ <see cref="ScenePortal"/>。
+        /// 触发器不挡路 —— 玩家可以正常走过门口，只有按交互键 / 点 HUD 按钮才传送。
+        /// </summary>
+        static GameObject MakePortal(Transform parent, string name, Vector2 center, Vector2 size,
+                                     string prompt, string targetScene, string spawnPointId)
+        {
+            var go = new GameObject(name, typeof(BoxCollider2D), typeof(ScenePortal));
+            go.transform.SetParent(parent, false);
+            go.transform.position = center;
+
+            var box = go.GetComponent<BoxCollider2D>();
+            box.isTrigger = true;        // 只做接近检测，不参与物理阻挡
+            box.size = size;
+
+            var portal = go.GetComponent<ScenePortal>();
+            portal.prompt = prompt;
+            portal.targetScene = targetScene;
+            portal.spawnPointId = spawnPointId;
+            return go;
+        }
+
+        /// <summary>造一个出生点标记（带编辑器可见的箭头 gizmo，方便核对落点朝向）。</summary>
+        static GameObject MakeSpawn(Transform parent, string name, Vector3 pos, string id, Vector2 facing)
+        {
+            var go = new GameObject(name, typeof(PlayerSpawnPoint));
+            go.transform.SetParent(parent, false);
+            go.transform.position = pos;
+            var sp = go.GetComponent<PlayerSpawnPoint>();
+            sp.id = id;
+            sp.facing = facing;
+            return go;
+        }
+
+        /// <summary>
+        /// 造一个可操控玩家（Rigidbody2D + 控制器 + 外观 + Y 排序 + 动画驱动 + 交互器）。
+        /// <paramref name="orderBase"/> 是场景地图高度：YSort 用它把排序值压到与静态物件同一区间
+        /// （农场 24 / 室内 16）。两边不一致的话玩家会和家具差一个量级，整片被盖住或整片盖住人。
+        /// </summary>
+        static GameObject CreatePlayer(Vector3 pos, int orderBase)
+        {
+            var player = new GameObject("Player", typeof(Rigidbody2D), typeof(CircleCollider2D),
+                                        typeof(PlayerController), typeof(PlayerAppearance),
+                                        typeof(YSort), typeof(CharacterAnimDriver),
+                                        typeof(PlayerInteractor));   // v0.12：砍树交互（E 键 / HUD 按钮）
+            player.transform.position = pos;
+
+            var visual = new GameObject("Visual", typeof(SpriteRenderer), typeof(Animator));
+            visual.transform.SetParent(player.transform, false);
+            visual.transform.localPosition = new Vector3(0f, 0.75f, 0f);
+            var sr = visual.GetComponent<SpriteRenderer>();
+            sr.sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png");
+            sr.sortingOrder = 10;
+
+            // 动画：先停用，由 PlayerAppearance 按所选角色启用对应控制器。
+            // 每个角色都有自己的控制器（见 EnsureCharacterControllers），
+            // 缺帧的角色 controller 为 null → CharacterAnimDriver 走 flipX + bob 兜底。
+            var anim = visual.GetComponent<Animator>();
+            anim.runtimeAnimatorController = CtrlOf("001");
+            anim.enabled = false;
+
+            var cc = player.GetComponent<CircleCollider2D>();
+            cc.radius = 0.32f;
+            cc.offset = new Vector2(0f, 0.45f);
+
+            // CharacterAnimDriver 自己会在子物体里找 SpriteRenderer / Animator / PlayerController：
+            // 有 controller 的角色走四方向动画；无 controller 的走 flipX + 走路小跳。
+            var driver = player.GetComponent<CharacterAnimDriver>();
+            driver.bobHeight = 0.06f;   // 约 4 像素（V2 素材 64 PPU）
+            driver.bobFrequency = 8f;
+
+            var pa = player.GetComponent<PlayerAppearance>();
+            pa.target = sr;
+            pa.animator = anim;
+            pa.entries = new[]
+            {
+                new PlayerAppearance.Entry { id = "001", sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png"),
+                                             controller = CtrlOf("001") },
+                new PlayerAppearance.Entry { id = "002", sprite = WorldSpriteOf("rain", "Characters/char_002_rain_maiden.png"),
+                                             controller = CtrlOf("002") },
+                new PlayerAppearance.Entry { id = "003", sprite = WorldSpriteOf("adventurer", "Characters/char_003_adventurer.png"),
+                                             controller = CtrlOf("003") },
+                new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = CtrlOf("004") },
+            };
+
+            // Y 轴动态排序（与物件烘焙公式一致：MapH * 10 - y * 10）
+            var ys = player.GetComponent<YSort>();
+            ys.target = sr;
+            ys.multiplier = 10f;
+            ys.offset = orderBase * 10;
+
+            return player;
         }
 
         // ------------------------------------------------------------ UI 小工具
@@ -1259,7 +1537,9 @@ namespace LuminousSSS.EditorTools
         // ------------------------------------------------------------ Build Settings
         static void RegisterBuildScenes()
         {
-            var wanted = new[] { ScenesDir + "/LoginScene.scene", ScenesDir + "/FarmScene.scene" };
+            var wanted = new[] { ScenesDir + "/LoginScene.scene", ScenesDir + "/FarmScene.scene",
+                                 ScenesDir + "/" + GameData.SceneHouse1F + ".scene",
+                                 ScenesDir + "/" + GameData.SceneHouse2F + ".scene" };
             var list = new List<EditorBuildSettingsScene>();
             foreach (var w in wanted)
                 if (System.IO.File.Exists(w))

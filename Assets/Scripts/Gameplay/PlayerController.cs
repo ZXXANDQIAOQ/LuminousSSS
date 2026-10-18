@@ -24,6 +24,18 @@ namespace LuminousSSS
         /// <summary>是否正在移动（有输入且已归一化）。</summary>
         public bool IsMoving => _input.sqrMagnitude > 0.01f;
 
+        /// <summary>
+        /// 直接设定朝向（传送落地时用：进屋后面朝里、下楼后面朝楼梯外）。
+        /// 只写朝向，不碰输入 —— 下一帧有输入时照常被覆盖。
+        /// </summary>
+        public void SetFacing(Vector2 dir)
+        {
+            if (dir.sqrMagnitude < 0.0001f) return;
+            _facing = Mathf.Abs(dir.x) >= Mathf.Abs(dir.y)
+                ? new Vector2(Mathf.Sign(dir.x), 0f)
+                : new Vector2(0f, Mathf.Sign(dir.y));
+        }
+
         private void Reset()
         {
             var rb = GetComponent<Rigidbody2D>();
