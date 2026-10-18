@@ -3,7 +3,28 @@
 > 适用工程：LuminousSSS（团结引擎 2D 农场）
 > 引擎：团结引擎 **2022.3.62t16**（内部版本 1.10.4）
 > 本机引擎路径：`E:\App\GameWorker\Editor\2022.3.62t16\Editor\Tuanjie.exe`
-> 本文最后核对：2026-10-17，对应工程提交 `d96f253`（v0.10）
+> 本文最后核对：2026-10-18，对应工程提交 `8ca41c0`（v0.13）
+
+---
+
+## 0.5 一键出包（推荐，2026-10-18 起）
+
+菜单：`Tools → LuminousSSS → 出安卓调试包（ARM64 + IL2CPP）`
+
+由 `Assets/Editor/AndroidBuilder.cs` 提供，**自动完成第 2 节的全部设置**，不用再手点面板：
+
+| 自动设置 | 值 | 为什么 |
+|---|---|---|
+| Target Architectures | 只 `ARM64` | M511CD 这类 Android 15+ 设备只认 64 位；旧包只打 `armeabi-v7a`，装都装不上 |
+| Scripting Backend | `IL2CPP` | Android 上 64 位的前提（Mono 只有 32 位） |
+| Package Name | `com.zxxandqiaoq.luminoussss` | 不用默认 `com.DefaultCompany.*` |
+| Orientation | `Landscape Left` | HUD 按横屏布局 |
+| Build 选项 | `Development` + `Script Debugging` | 真机 `adb logcat -s Unity` 才能看到 Debug.Log 与异常堆栈 |
+
+- 产物：`OutPut/LuminousSSS_arm64_dev.apk`（`OutPut/` 已被 `.gitignore` 排除）
+- 构建摘要（含耗时、体积、失败时的逐条报错）：`.workbuddy/android_build.log`
+- 构建期间编辑器会**阻塞 10~30 分钟**（IL2CPP 首次编译），属正常。
+- WorkBuddy 可通过桌面 MCP 直接点这个菜单并轮询上面的日志，不需要人手点。
 
 ---
 
