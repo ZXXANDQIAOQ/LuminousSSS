@@ -923,13 +923,25 @@ namespace LuminousSSS.EditorTools
 
             var floorA = A<Tile>(TilesDir + "/v2_in_floor_wood_a.asset");
             var floorB = A<Tile>(TilesDir + "/v2_in_floor_wood_b.asset");
+            var floorTile = A<Tile>(TilesDir + "/v2_in_floor_tile.asset");
             var wallPaper = A<Tile>(TilesDir + "/v2_in_wall_paper.asset");
             var wallWood = A<Tile>(TilesDir + "/v2_in_wall_wood.asset");
 
-            // 木地板铺满内部，两种板纹按坐标哈希混铺（同一素材平铺一整片会看出规律）
+            // 地板按功能分区（v0.14）：
+            //   一层：x1..13 木地板（客厅 + 门厅）、x14..24 瓷砖（餐厨）
+            //   二层：全木地板（卧室 + 书房）
+            // 原先整层平铺一种木地板，26x14 的空间没有任何材质分界，这是「简陋」的主因之一。
+            // 瓷砖只铺餐厨而不是整层：木地板是这套素材的暖色主调，瓷砖占比过大画面会发灰。
+            const int KitchenSplitX = 14;
             for (int x = 1; x < RoomW; x++)
                 for (int y = 0; y < RoomH - RoomWallRows; y++)
                 {
+                    if (!secondFloor && x >= KitchenSplitX)
+                    {
+                        tm.SetTile(new Vector3Int(x, y, 0), floorTile);
+                        continue;
+                    }
+                    // 木地板两种板纹按坐标哈希混铺（同一素材平铺一整片会看出规律）
                     int h = Mathf.Abs(x * 73856093 ^ y * 19349663) % 100;
                     tm.SetTile(new Vector3Int(x, y, 0), h < 55 ? floorA : floorB);
                 }
@@ -958,39 +970,53 @@ namespace LuminousSSS.EditorTools
             var spawns = new GameObject("Spawns").transform;
 
             // 室内统一用 RoomH 当排序基准（PlaceProp 的 orderBase）
-            void Put(string rel, float cx, float groundY, Vector2? col)
-                => PlaceProp(props, I + rel, cx, groundY, col, RoomH);
+            // order：地毯 -50 / 墙饰 40 / 其余按 Y 排序（见 PlaceProp 注释）
+            void Put(string rel, float cx, float groundY, Vector2? col = null, int? order = null)
+                => PlaceProp(props, I + rel, cx, groundY, col, RoomH, order);
 
-            float wallFoot = RoomH - RoomWallRows;   // 墙脚：贴墙家具的 groundY
+            // 墙脚 = RoomH - RoomWallRows = 12：挂饰从这里往上长；
+            // 贴后墙的家具另按「顶部贴到 y=14」反算 groundY（见下方注释）
 
             if (!secondFloor)
             {
-                // ---- 一层
-                Put("v2_in_bookshelf.png",    2.5f, wallFoot, new Vector2(1.8f, 0.7f));
-                Put("v2_in_fireplace.png",    6.5f, wallFoot, new Vector2(2.6f, 0.8f));
-                Put("v2_in_counter.png",     19.0f, wallFoot, new Vector2(2.8f, 0.8f));
-                Put("v2_in_stairs_up.png",  RoomStairsX, wallFoot, new Vector2(2.6f, 1.0f));
+                // ================= 一层：左侧客厅 + 中间门厅 + 右侧餐厨 =================
+                // 后墙从左到右：书架 / 挂钟 / 壁炉 / 窗 / 门厅挂画 / 窗 / 台面 / 楼梯
+                // 贴后墙的家具按「顶部贴到墙顶 y=14」反算 groundY，否则 3~5 格高的家具会顶出画面
+                Put("v2_in_bookshelf.png",    2.5f,  11.0f, new Vector2(1.8f, 0.7f));
+                Put("v2_in_fireplace.png",    6.5f,  11.0f, new Vector2(2.6f, 0.8f));
+                Put("v2_in_counter.png",     19.5f,  12.0f, new Vector2(2.8f, 0.8f));
+                Put("v2_in_stairs_up.png",  RoomStairsX, 11.0f, new Vector2(2.6f, 1.0f));
 
-                // 墙饰：底部对齐墙顶 → 正好贴在墙面上（两扇窗 + 中间一幅画）
-                Put("v2_in_window.png",      11.0f, RoomH, null);
-                Put("v2_in_window.png",      15.0f, RoomH, null);
-                Put("v2_in_painting.png",    13.0f, RoomH, null);
+                // 墙饰：底部压在墙脚 y=12，order 40 保证盖在墙纸上、不被贴墙家具吞掉
+                Put("v2_in_clock.png",        4.25f, 12.5f, null, 40);
+                Put("v2_in_window.png",      10.5f, 12.0f, null, 40);
+                Put("v2_in_painting.png",    13.5f, 12.5f, null, 40);   // 大门正上方，进门第一眼
+                Put("v2_in_window.png",      16.5f, 12.0f, null, 40);
 
-                // 客厅：地毯在最下层，沙发靠后墙一侧，茶几在中间
-                Put("v2_in_rug_red.png",      7.5f, 2.4f, null);
-                Put("v2_in_sofa.png",         7.5f, 7.6f, new Vector2(3.8f, 0.9f));
-                Put("v2_in_coffee_table.png", 7.5f, 4.4f, new Vector2(2.6f, 0.8f));
-                Put("v2_in_floor_lamp.png",   3.4f, 7.6f, new Vector2(0.6f, 0.5f));
-                Put("v2_in_plant.png",        1.8f, 10.0f, new Vector2(1.0f, 0.5f));
-                Put("v2_in_plant.png",       12.2f, 1.4f, new Vector2(1.0f, 0.5f));
+                // ---- 客厅：沙发正对壁炉，茶几居中，扶手椅收在右侧形成围合
+                Put("v2_in_rug_red.png",       6.5f,  3.2f, null, -50);  // 地毯压在家具之下
+                Put("v2_in_sofa.png",          6.5f,  8.6f, new Vector2(3.8f, 0.9f));
+                Put("v2_in_coffee_table.png",  6.5f,  5.6f, new Vector2(2.6f, 0.8f));
+                Put("v2_in_armchair.png",     10.4f,  7.0f, new Vector2(1.8f, 0.7f));
+                Put("v2_in_floor_lamp.png",    3.2f,  8.6f, new Vector2(0.6f, 0.5f));
+                Put("v2_in_plant.png",         1.7f, 10.6f, new Vector2(1.0f, 0.5f));
+                Put("v2_in_plant.png",         1.7f,  2.0f, new Vector2(1.0f, 0.5f));
 
-                // 餐区（餐桌两侧各一把椅子）
-                Put("v2_in_dining_table.png", 18.5f, 5.6f, new Vector2(3.6f, 0.8f));
-                Put("v2_in_chair.png",        15.9f, 6.0f, new Vector2(0.7f, 0.5f));
-                Put("v2_in_chair.png",        21.1f, 6.0f, new Vector2(0.7f, 0.5f));
+                // ---- 门厅：大门落地（原 -0.6 让门半埋在房间外），两侧各一盆绿植框住入口
+                Put("v2_in_door.png",    RoomDoorX,  0.0f, new Vector2(1.8f, 0.6f));
+                Put("v2_in_plant.png",         11.4f,  2.2f, new Vector2(1.0f, 0.5f));
+                Put("v2_in_plant.png",         15.2f,  1.6f, new Vector2(1.0f, 0.5f));
 
-                // 大门：半截在墙外，视觉上就是「你从这扇门进来的」
-                Put("v2_in_door.png", RoomDoorX, -0.6f, new Vector2(1.8f, 0.6f));
+                // ---- 餐厨：餐桌 + 四把椅子（原 2 把，4 把才像用餐区）+ 桌上台灯 + 右下操作柜
+                Put("v2_in_rug_red.png",      19.0f,  2.4f, null, -50);
+                Put("v2_in_dining_table.png", 19.0f,  5.8f, new Vector2(3.6f, 0.8f));
+                Put("v2_in_chair.png",        16.4f,  4.9f, new Vector2(0.7f, 0.5f));
+                Put("v2_in_chair.png",        16.4f,  7.2f, new Vector2(0.7f, 0.5f));
+                Put("v2_in_chair.png",        21.6f,  4.9f, new Vector2(0.7f, 0.5f));
+                Put("v2_in_chair.png",        21.6f,  7.2f, new Vector2(0.7f, 0.5f));
+                Put("v2_in_table_lamp.png",   19.0f,  8.2f, null);        // 桌面高度 8.3，灯座压在桌面上
+                Put("v2_in_counter.png",      23.0f,  3.0f, new Vector2(2.8f, 0.8f));
+                Put("v2_in_plant.png",        24.2f, 10.6f, new Vector2(1.0f, 0.5f));
 
                 MakePortal(props, "DoorToFarm", new Vector2(RoomDoorX, 1.3f), new Vector2(2.6f, 1.5f),
                            "出门", GameData.SceneFarm, GameData.SpawnDoor);
@@ -1003,24 +1029,27 @@ namespace LuminousSSS.EditorTools
             }
             else
             {
-                // ---- 二层
-                Put("v2_in_stairs_down.png", RoomStairsX, wallFoot, new Vector2(2.6f, 1.0f));
-                Put("v2_in_bookshelf.png",    2.2f, wallFoot, new Vector2(1.8f, 0.7f));
-                Put("v2_in_bed.png",          7.0f, wallFoot, new Vector2(3.6f, 0.9f));
-                Put("v2_in_nightstand.png",   4.2f, wallFoot, new Vector2(1.2f, 0.5f));
-                Put("v2_in_table_lamp.png",   4.2f, wallFoot + 0.6f, null);   // 叠在床头柜面上
-                Put("v2_in_wardrobe.png",    11.5f, wallFoot, new Vector2(2.6f, 0.8f));
-                Put("v2_in_desk.png",        19.0f, wallFoot, new Vector2(2.8f, 0.7f));
-                Put("v2_in_chair.png",       19.0f, 9.8f, new Vector2(0.7f, 0.5f));
+                // ================= 二层：左侧卧室 + 右侧书房 =================
+                // 后墙从左到右：床头柜 / 床 / 衣柜 / 挂钟 / 书架 / 书桌 / 楼梯
+                // 床高 5 格 → groundY 9（顶部正好到墙顶）；衣柜 3.5 → 10.5；书架 3 → 11
+                Put("v2_in_nightstand.png",   2.6f, 12.5f, new Vector2(1.2f, 0.5f));
+                Put("v2_in_bed.png",          5.5f,  8.5f, new Vector2(3.6f, 0.9f));   // 床高 5 格，顶部 13.5 正好在视野内
+                Put("v2_in_wardrobe.png",    10.3f, 10.5f, new Vector2(2.6f, 0.8f));
+                Put("v2_in_bookshelf.png",   14.0f, 11.0f, new Vector2(1.8f, 0.7f));
+                Put("v2_in_desk.png",        17.8f, 12.0f, new Vector2(2.8f, 0.7f));
+                Put("v2_in_stairs_down.png", RoomStairsX, 10.0f, new Vector2(2.6f, 1.0f));
 
-                // 墙饰：一扇窗 + 一个挂钟（衣柜与书桌之间的空当）
-                Put("v2_in_window.png",      15.5f, RoomH, null);
-                Put("v2_in_clock.png",       13.2f, RoomH, null);
+                Put("v2_in_clock.png",       12.2f, 12.5f, null, 40);   // 衣柜与书架之间的空当
 
-                Put("v2_in_rug_red.png",     13.8f, 2.0f, null);
-                Put("v2_in_armchair.png",    13.8f, 6.2f, new Vector2(1.8f, 0.7f));
-                Put("v2_in_floor_lamp.png",  16.6f, 4.2f, new Vector2(0.6f, 0.5f));
-                Put("v2_in_plant.png",        1.8f, 3.0f, new Vector2(1.0f, 0.5f));
+                // 卧室地毯 + 书房阅读角（扶手椅 + 落地灯），两块地毯会看着重复，书房不铺
+                Put("v2_in_rug_red.png",      6.5f,  2.6f, null, -50);
+                Put("v2_in_chair.png",       17.8f, 10.0f, new Vector2(0.7f, 0.5f));   // 推在书桌下
+                Put("v2_in_chair.png",        8.7f,  7.6f, new Vector2(0.7f, 0.5f));   // 床边换衣凳
+                Put("v2_in_armchair.png",    14.6f,  4.6f, new Vector2(1.8f, 0.7f));
+                Put("v2_in_floor_lamp.png",  16.4f,  3.6f, new Vector2(0.6f, 0.5f));
+                Put("v2_in_plant.png",        1.7f, 10.4f, new Vector2(1.0f, 0.5f));
+                Put("v2_in_plant.png",        1.7f,  2.0f, new Vector2(1.0f, 0.5f));
+                Put("v2_in_plant.png",       24.2f,  2.4f, new Vector2(1.0f, 0.5f));
 
                 MakePortal(props, "StairsTo1F", new Vector2(RoomStairsX, 8.4f), new Vector2(2.8f, 1.5f),
                            "下楼", GameData.SceneHouse1F, GameData.SpawnStairs);
@@ -1179,9 +1208,13 @@ namespace LuminousSSS.EditorTools
         /// （与玩家的 YSort 公式一致）。collider 非空时加一个底部碰撞盒（宽 x 高）。
         /// <paramref name="orderBase"/> = 场景地图高度；室内场景要用自己的高度（26x16 → 16），
         /// 否则排序基准和玩家的 YSort.offset 对不上，家具会整片盖住人。
+        ///
+        /// <paramref name="orderOverride"/> 用于「不参与 Y 排序」的层级：
+        ///   地毯 = -50（地板 -100 之上、所有家具之下，否则 groundY 小会把地毯画到家具上面）
+        ///   墙饰 = 40（贴在墙纸上，高于贴墙家具的 30，避免被吞）
         /// </summary>
         static void PlaceProp(Transform parent, string rel, float tileX, float groundY, Vector2? collider,
-                              int orderBase = 0)
+                              int orderBase = 0, int? orderOverride = null)
         {
             var sp = S(rel);
             if (sp == null) { Debug.LogWarning("[LuminousSSS] 缺少素材: " + rel); return; }
@@ -1194,7 +1227,7 @@ namespace LuminousSSS.EditorTools
             go.transform.position = new Vector3(tileX, groundY + h * 0.5f, 0f);
             // 越靠下越晚渲染，避免互相穿插时穿帮
             int baseH = orderBase > 0 ? orderBase : MapH;
-            sr.sortingOrder = Mathf.RoundToInt((baseH - groundY) * 10f);
+            sr.sortingOrder = orderOverride ?? Mathf.RoundToInt((baseH - groundY) * 10f);
 
             if (collider.HasValue)
             {
