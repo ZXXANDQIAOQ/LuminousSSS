@@ -67,3 +67,7 @@ desktop.ini
 
 # 本地启动脚本
 /启动编辑器.bat
+
+# Python 缓存（Tools/ 下的预览与生成脚本）
+__pycache__/
+*.pyc
