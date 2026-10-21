@@ -244,6 +244,11 @@ namespace LuminousSSS.EditorTools
             MakeTile("v2_sand", Art + "V2/Tiles/fill_sand.png");       // 浅沙土（土路）
             MakeTile("v2_cobble", Art + "V2/Tiles/tile_r06c05.png");   // 鹅卵石（石墙）
 
+            // 耕地（砍树后铺在树原位）—— Tools/gen_farmland_tiles.py
+            // 从 fill_dirt_a 派生：压暗 + 偏暖 + 断续犁沟，和土块同色阶
+            MakeTile("v2_tilled_a", Art + "V2/Tiles/fill_tilled_a.png");
+            MakeTile("v2_tilled_b", Art + "V2/Tiles/fill_tilled_b.png");
+
             // 室内（小洋楼一层 / 二层）—— 由 Tools/gen_house_interior.py 程序化生成
             MakeTile("v2_in_floor_wood_a", Art + "V2/Interior/v2_in_floor_wood_a.png");
             MakeTile("v2_in_floor_wood_b", Art + "V2/Interior/v2_in_floor_wood_b.png");
@@ -454,7 +459,7 @@ namespace LuminousSSS.EditorTools
                 AddTrans(w.st, idleState, 0.08f, ("Speed", AnimatorConditionMode.Less, 0.01f));
 
             // 各方向互转：边走边换方向不停步。
-            // 上面已把 5 个状态的 transitions 全部清空，这里是统一重建，重复执行不会累积。
+            // 上面已把 5 个状态的 transitions 全部清空，这里是统一重建。
             foreach (var from in walks)
                 foreach (var to in walks)
                 {
@@ -464,9 +469,62 @@ namespace LuminousSSS.EditorTools
                         (to.axis, ModeOf(to.sign), ThresholdOf(to.sign)));
                 }
 
+            // 关键：s.transitions = new[0] 只是「解除引用」，过渡对象本身还留在 .controller
+            // 资产里变成孤儿 —— 不清理的话每跑一次构建菜单，文件就膨胀一批死过渡
+            // （实测每次 +668 行 / +20 个孤儿）。这里把没人引用的过渡真正删掉。
+            int purged = PurgeOrphanTransitions(ctrl, ctrlPath);
+            if (purged > 0) Debug.Log($"[LuminousSSS] {label} 控制器清理孤儿过渡 {purged} 个");
+
             EditorUtility.SetDirty(ctrl);
             Debug.Log($"[LuminousSSS] {label} 动画控制器已就绪（Idle + 四方向行走）：{ctrlPath}");
             return true;
+        }
+
+        /// <summary>
+        /// 删掉 AnimatorController 资产里已经没人引用的过渡对象（孤儿）。
+        ///
+        /// 为什么需要：<c>state.transitions = new AnimatorStateTransition[0]</c> 只改引用数组，
+        /// 过渡对象仍是 controller 的子资产，会被一并序列化。反复重建状态机就会一直堆积，
+        /// 文件越来越大（每轮约 +668 行），而且这些死对象永远不会被运行时用到。
+        /// </summary>
+        static int PurgeOrphanTransitions(AnimatorController ctrl, string ctrlPath)
+        {
+            // 1) 收集仍被状态 / 状态机引用的过渡
+            var machines = new List<AnimatorStateMachine>();
+            foreach (var layer in ctrl.layers)
+                CollectStateMachines(layer.stateMachine, machines);
+
+            var live = new HashSet<UnityEngine.Object>();
+            foreach (var sm in machines)
+            {
+                foreach (var cs in sm.states)
+                    if (cs.state != null)
+                        foreach (var t in cs.state.transitions)
+                            if (t != null) live.Add(t);
+
+                foreach (var t in sm.anyStateTransitions) if (t != null) live.Add(t);
+                foreach (var t in sm.entryTransitions) if (t != null) live.Add(t);
+            }
+
+            // 2) 资产里所有过渡对象中，没人引用的一律移除
+            int purged = 0;
+            foreach (var o in AssetDatabase.LoadAllAssetsAtPath(ctrlPath))
+            {
+                if (!(o is AnimatorStateTransition t) || live.Contains(t)) continue;
+                AssetDatabase.RemoveObjectFromAsset(t);
+                UnityEngine.Object.DestroyImmediate(t, true);
+                purged++;
+            }
+            return purged;
+        }
+
+        /// <summary>递归收集状态机（含子状态机）。</summary>
+        static void CollectStateMachines(AnimatorStateMachine sm, List<AnimatorStateMachine> outList)
+        {
+            if (sm == null) return;
+            outList.Add(sm);
+            foreach (var child in sm.stateMachines)
+                CollectStateMachines(child.stateMachine, outList);
         }
 
         static void AddTrans(AnimatorState from, AnimatorState to, float duration,
@@ -784,6 +842,18 @@ namespace LuminousSSS.EditorTools
                 for (int r = 0; r < WallRows; r++)
                     tm.SetTile(new Vector3Int(x, MapH - 1 - r, 0), cobble);
 
+            // ---- 耕地层
+            // 砍倒树后 TreeChop 往这一层写耕地瓦片（树原位「直接变成田地」，不留树桩）。
+            // sortingOrder 必须卡在 Ground(-100) 之上、所有物件(≥0) 之下：
+            // 耕地是平铺地面，永远不该盖住玩家或家具。
+            var farmlandGO = new GameObject("Farmland", typeof(Tilemap), typeof(TilemapRenderer));
+            farmlandGO.transform.SetParent(gridGO.transform, false);
+            var farmland = farmlandGO.GetComponent<Tilemap>();
+            farmlandGO.GetComponent<TilemapRenderer>().sortingOrder = -90;
+
+            var tilledA = A<Tile>(TilesDir + "/v2_tilled_a.asset");
+            var tilledB = A<Tile>(TilesDir + "/v2_tilled_b.asset");
+
             // ---- 物件（collider 给出底部碰撞盒的宽 x 高；无则纯装饰）
             var props = new GameObject("Props").transform;
 
@@ -821,7 +891,7 @@ namespace LuminousSSS.EditorTools
             PlaceProp(props, "V2/Nature/v2_nature_sign.png", 31.4f, 1.4f, new Vector2(0.7f, 0.6f));
 
             // ---- v0.12 田地种树：砍伐前田地不可见，玩家砍树后才暴露田地（开垦玩法）
-            PlantFieldTrees(props);
+            PlantFieldTrees(props, farmland, tilledA, tilledB);
 
             // ---- v0.12 空地加密：原本只有零星几棵树，房子两侧的大片草地空得跑肚皮
             DecorateOpenGround(props);
@@ -1238,7 +1308,7 @@ namespace LuminousSSS.EditorTools
         }
 
         /// <summary>
-        /// v0.12 田地种树：砍伐前田地不可见，玩家砍树后田地才暴露（开垦玩法）。
+        /// v0.12 田地种树：玩家砍倒树后，树原位直接铺一块「耕地」瓦片（开垦玩法）。
         ///
         /// 梅花型种植：行内隔 2 格、相邻行错开 1 格（每 2x2 格一棵），
         /// 树间留 1 格通道；碰撞盒 1.0 格宽占格心，玩家（半径 0.32）刚好能从树缝走到田中央。
@@ -1246,18 +1316,19 @@ namespace LuminousSSS.EditorTools
         /// 树种按坐标哈希 6:4 混栽（阔叶 60% / 松树 40%），防止出现条纹状纯色带。
         ///
         /// 已砍记录由 TreeChop 读 PlayerPrefs（键 LuminousSSS.ChoppedTrees），
-        /// 重进场景不长回来 —— 开垦进度不丢。
+        /// 重进场景不长回来、耕地也照原样铺回去 —— 开垦进度不丢。
         /// </summary>
-        static void PlantFieldTrees(Transform parent)
+        static void PlantFieldTrees(Transform parent, Tilemap farmland, Tile tilledA, Tile tilledB)
         {
             var broad = S("V2/Nature/v2_nature_tree_broadleaf.png");
             var pine = S("V2/Nature/v2_nature_tree_pine.png");
-            var stump = S("V2/Nature/v2_nature_stump.png");
             if (broad == null || pine == null)
             {
                 Debug.LogWarning("[LuminousSSS] 缺少树木素材（v2_nature_tree_*），田地种树跳过");
                 return;
             }
+            if (farmland == null || tilledA == null)
+                Debug.LogWarning("[LuminousSSS] 耕地层或耕地瓦片缺失，砍树后无法变成田地");
 
             int planted = 0;
             for (int y = DirtRect.yMin + 1; y <= DirtRect.yMax - 1; y += 2)
@@ -1267,22 +1338,26 @@ namespace LuminousSSS.EditorTools
                 {
                     bool isPine = Mathf.Abs(x * 31 + y * 17) % 10 >= 6;   // 阔叶 60% / 松树 40%
                     PlaceChopTree(parent,
-                                  isPine ? pine : broad, stump,
+                                  isPine ? pine : broad,
                                   x + 0.5f, y + 0.5f,
                                   $"tree_{x}_{y}",
-                                  isPine ? new Vector2(0.9f, 0.7f) : new Vector2(1.0f, 0.8f));
+                                  isPine ? new Vector2(0.9f, 0.7f) : new Vector2(1.0f, 0.8f),
+                                  farmland, tilledA, tilledB, x, y);
                     planted++;
                 }
             }
-            Debug.Log($"[LuminousSSS] 田地种树 {planted} 棵（砍伐前田地不可见，砍树后暴露）");
+            Debug.Log($"[LuminousSSS] 田地种树 {planted} 棵（砍倒后原位变成耕地，不留树桩）");
         }
 
         /// <summary>
         /// 种一棵可砍伐的树：与 <see cref="PlaceProp"/> 同一套「底部对齐 + Y 排序」公式，
-        /// 额外挂 TreeChop 并写入 treeId / stumpSprite / groundY（砍倒后换树桩要按底部重新对齐）。
+        /// 额外挂 TreeChop 并写入 treeId 与耕地层引用（砍倒时把这一格铺成耕地）。
+        /// cellX/cellY 是树的种植格坐标（不是世界坐标），由 TreeChop 直接用来 SetTile。
         /// </summary>
-        static void PlaceChopTree(Transform parent, Sprite tree, Sprite stump, float cx, float groundY,
-                                  string treeId, Vector2 collider)
+        static void PlaceChopTree(Transform parent, Sprite tree, float cx, float groundY,
+                                  string treeId, Vector2 collider,
+                                  Tilemap farmland, Tile tilledA, Tile tilledB,
+                                  int cellX, int cellY)
         {
             if (tree == null) { Debug.LogWarning("[LuminousSSS] 缺少树木素材"); return; }
 
@@ -1303,8 +1378,11 @@ namespace LuminousSSS.EditorTools
 
             var chop = go.GetComponent<TreeChop>();
             chop.treeId = treeId;
-            chop.stumpSprite = stump;
-            chop.groundY = groundY;
+            chop.farmland = farmland;
+            chop.tilledTile = tilledA;
+            chop.tilledTileAlt = tilledB;
+            chop.cellX = cellX;
+            chop.cellY = cellY;
         }
 
         /// <summary>

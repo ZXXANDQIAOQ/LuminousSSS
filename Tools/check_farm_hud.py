@@ -269,12 +269,46 @@ def check_house_extra(docs, gos, floor):
     check_camera_bounds(docs, gos, (26.0, 14.0))
 
 
+def check_farmland(docs, gos):
+    """砍树 → 原地变耕地：耕地层在不在、每棵树有没有配齐耕地引用与格子坐标。
+
+    判据来自 TreeChop 的序列化字段：farmland（Tilemap 引用）、tilledTile（Tile 引用）、
+    cellX/cellY（种植格坐标）。缺 farmland/tilledTile 时 TreeChop 会静默跳过，
+    表现就是「树砍掉了、地面还是原来的土」——正是这次要避免的效果。
+    """
+    # 1) 耕地层：名为 Farmland 的对象必须挂 Tilemap（团结引擎 classId 1839735485 / 原生 183）
+    has_layer = any(docs.get(fid, (None, ''))[0] in (183, 1839735485)
+                    for fid in gos.get('Farmland', []))
+    check('存在耕地层「Farmland」（Tilemap）', has_layer,
+          '砍树后铺耕地用；缺了树会直接消失而地面不变')
+
+    # 2) 每棵可砍树都要配齐：farmland / tilledTile / cellX / cellY
+    trees = [n for n in gos if n.startswith('Tree_')]
+    bad = []
+    for name in trees:
+        fid, body = comp_with(docs, gos, name, 'treeId:')
+        if fid is None:
+            bad.append(name + ' 没挂 TreeChop')
+            continue
+        if not re.search(r'farmland: \{fileID: [1-9]\d*', body):
+            bad.append(name + ' 的 farmland 为空')
+        elif not re.search(r'tilledTile: \{fileID: [1-9]\d*', body):
+            bad.append(name + ' 的 tilledTile 为空')
+        elif not re.search(r'^\s+cellX: [1-9]\d*$', body, re.M) or \
+                not re.search(r'^\s+cellY: [1-9]\d*$', body, re.M):
+            bad.append(name + ' 的 cellX/cellY 没写入')
+    check(f'可砍树 {len(trees)} 棵都配了耕地层 + 耕地瓦片 + 格子坐标',
+          len(trees) > 0 and not bad,
+          ('缺项：' + '；'.join(bad[:4])) if bad else f'实测 {len(trees)} 棵')
+
+
 def main():
     farm_only = '--farm-only' in sys.argv
 
     need_meta = ('Assets/Art/V2/UI/v2_ui_joystick_base.png',
                  'Assets/Art/V2/UI/v2_ui_joystick_knob.png',
                  'Assets/Art/V2/Interior/v2_in_floor_wood_a.png',
+                 'Assets/Art/V2/Tiles/fill_tilled_a.png',
                  'Assets/Scripts/Controls/VirtualJoystick.cs',
                  'Assets/Scripts/Gameplay/PlayerController.cs',
                  'Assets/Scripts/Gameplay/CameraFollow.cs',
@@ -305,6 +339,7 @@ def main():
             check_portal(docs, gos, 'DoorToHouse', 'House1FScene', 'Default')
             check_spawn(docs, gos, 'Spawn_Door', 'Door')
             check_camera_bounds(docs, gos, (40.0, 24.0))
+            check_farmland(docs, gos)
         elif path == HOUSE1F:
             check_portal(docs, gos, 'DoorToFarm', 'FarmScene', 'Door')
             check_portal(docs, gos, 'StairsTo2F', 'House2FScene', 'Default')

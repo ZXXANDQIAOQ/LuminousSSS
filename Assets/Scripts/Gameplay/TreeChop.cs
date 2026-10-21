@@ -1,12 +1,17 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.Tilemaps;
 
 namespace LuminousSSS
 {
     /// <summary>
-    /// 可砍伐树木：默认 3 下砍倒。砍倒后树隐藏、原位置留下树桩、
-    /// 并把 treeId 写进 PlayerPrefs —— 重进场景时树不会长回来，
-    /// 玩家开垦过的田地保持暴露（开垦进度不丢）。
+    /// 可砍伐树木：默认 3 下砍倒。砍倒后树消失，**原位直接铺一块耕地瓦片**
+    /// （不留树桩），并把 treeId 写进 PlayerPrefs —— 重进场景时树不会长回来、
+    /// 耕地也照原样铺回去，开垦进度不丢。
+    ///
+    /// 为什么不留树桩：树桩只是「这里砍过了」的标记，但开垦玩法真正要的是
+    /// 「这里变成田了」。耕地瓦片本身既是进度记录又是可耕种的地面，
+    /// 比树桩信息量更大，也不会和周围地块格格不入。
     ///
     /// 摆动/倒下全部用 transform 做，不依赖 Animator：
     /// 场景里的树是 SpriteRenderer 裸对象，挂 Animator 反而要多养一个控制器。
@@ -27,15 +32,21 @@ namespace LuminousSSS
         [Tooltip("场景生成器写入的唯一 id：tree_{x}_{y}（种植格坐标）")]
         public string treeId;
 
-        [Header("砍倒后")]
-        [Tooltip("树桩贴图。砍倒后留在原地，既是「这里砍过了」的视觉记录，也是纯装饰")]
-        public Sprite stumpSprite;
+        [Header("砍倒后变成耕地")]
+        [Tooltip("耕地层（Farm 场景里 sortingOrder=-90 的 Tilemap，在 Ground 之上、物件之下）")]
+        public Tilemap farmland;
 
-        [Tooltip("砍倒后是否留树桩。留：开垦痕迹可见；不留：田地直接干净")]
-        public bool leaveStump = true;
+        [Tooltip("主耕地瓦片（v2_tilled_a）")]
+        public Tile tilledTile;
 
-        /// <summary>树底对齐的世界 y（由场景生成器写入），换树桩贴图时重新按底部对齐用。</summary>
-        [HideInInspector] public float groundY;
+        [Tooltip("耕地瓦片变体（v2_tilled_b）；按格子坐标奇偶混铺，避免整片纹理重复")]
+        public Tile tilledTileAlt;
+
+        [Tooltip("树所在的种植格坐标（场景生成器写入；不是世界坐标）")]
+        public int cellX;
+
+        [Tooltip("树所在的种植格坐标（场景生成器写入；不是世界坐标）")]
+        public int cellY;
 
         /// <summary>是否已砍倒。</summary>
         public bool IsChopped { get; private set; }
@@ -89,6 +100,13 @@ namespace LuminousSSS
 
             // 之前砍过：直接进入砍倒态（不播抖动、不发音，进场景就是现状）
             if (WasChopped(treeId)) Fall(playFeedback: false);
+        }
+
+        private void Start()
+        {
+            // 兜底：Awake 阶段 Tilemap 未必已经启用完，已砍倒的树在这里再铺一次。
+            // PaintFarmland 是幂等的，重复调用只是重设同一个瓦片。
+            if (IsChopped) PaintFarmland();
         }
 
         /// <summary>是否可以砍（冷却中或已砍倒时不可）。</summary>
@@ -145,7 +163,7 @@ namespace LuminousSSS
         }
 
         /// <summary>
-        /// 砍倒：去碰撞（玩家可以直接走过开垦完的地）、隐藏树、留树桩、写存档。
+        /// 砍倒：去碰撞（玩家可以直接走过开垦完的地）、隐藏树、把原位铺成耕地、写存档。
         /// playFeedback = false 用于 Awake 的补状态（进场景时已经砍过的树）。
         /// </summary>
         private void Fall(bool playFeedback)
@@ -154,22 +172,31 @@ namespace LuminousSSS
             IsChopped = true;
             HitsLeft = 0;
 
-            if (_col != null) Destroy(_col);   // 砍倒的树不再挡路
+            if (_col != null) Destroy(_col);       // 砍倒的树不再挡路
+            if (_sr != null) _sr.enabled = false;  // 整棵消失（不留树桩，原位换成耕地）
 
-            if (leaveStump && stumpSprite != null && _sr != null)
-            {
-                _sr.sprite = stumpSprite;
-                // 树桩比树矮：sprite 是 Center 轴心，换图后要按底部重新对齐 groundY
-                float h = stumpSprite.rect.height / stumpSprite.pixelsPerUnit;
-                transform.position = new Vector3(transform.position.x, groundY + h * 0.5f, transform.position.z);
-            }
-            else if (_sr != null)
-            {
-                _sr.enabled = false;   // 不留桩：整棵消失
-            }
+            PaintFarmland();
 
             if (playFeedback) AudioManager.PlayChop();   // 静态入口，内部自带 Instance 判空
             MarkChopped(treeId);
+        }
+
+        /// <summary>
+        /// 把树所在的这一格铺成耕地。
+        ///
+        /// 幂等：重复调用只是重设同一个瓦片，Awake / Start 各调一次也不会出问题。
+        /// 变体按格子坐标奇偶挑选，相邻格纹理不同，成片开垦时不会看出重复。
+        /// farmland / tilledTile 缺失时静默跳过（老场景没有这两个引用也能正常跑，
+        /// 只是砍完树那块保持原土色）。
+        /// </summary>
+        private void PaintFarmland()
+        {
+            if (farmland == null || tilledTile == null) return;
+
+            var pick = (((cellX + cellY) & 1) == 0 || tilledTileAlt == null)
+                       ? tilledTile
+                       : tilledTileAlt;
+            farmland.SetTile(new Vector3Int(cellX, cellY, 0), pick);
         }
 
         private void OnDrawGizmosSelected()
