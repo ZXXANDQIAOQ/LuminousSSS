@@ -145,9 +145,16 @@ namespace LuminousSSS
             AudioManager.Confirm();
         }
 
-        /// <summary>挑种子：按物品表顺序取第一包有库存的（胡萝卜 → 萝卜 → 番茄）。</summary>
+        /// <summary>
+        /// 挑种子：优先用背包里选定的「待播种子」，没有选（或那种种子用完了）
+        /// 就按物品表顺序取第一包有库存的（胡萝卜 → 萝卜 → 番茄）。
+        /// </summary>
         ItemDef PickSeed()
         {
+            var picked = ItemDatabase.Find(Inventory.SelectedSeedId);
+            if (picked != null && picked.kind == ItemKind.Seed && Inventory.Has(picked.id))
+                return picked;
+
             foreach (var def in ItemDatabase.Purchasable(ItemKind.Seed))
                 if (Inventory.Has(def.id)) return def;
             return null;
@@ -160,6 +167,14 @@ namespace LuminousSSS
             if (seed == null || string.IsNullOrEmpty(seed.seedOf))
             {
                 Clear();               // 数据异常（物品表改过）时兜底清空，别卡住格子
+                return;
+            }
+
+            // 背包满了就让它继续挂在格子上 —— 直接清空等于把玩家的收成凭空丢掉
+            if (!Inventory.CanAdd(seed.seedOf, 1))
+            {
+                Toast.Show("背包满了，先去集市卖掉一些再收");
+                AudioManager.Click();
                 return;
             }
 

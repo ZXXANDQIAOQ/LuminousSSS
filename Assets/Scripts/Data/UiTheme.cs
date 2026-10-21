@@ -32,6 +32,21 @@ namespace LuminousSSS
         [Tooltip("金币图标")]
         public Sprite coinIcon;
 
+        [Tooltip("背包面板底图（比主面板更厚重的一张，九宫格拉伸）")]
+        public Sprite panelInventory;
+
+        [Tooltip("空物品格底图（背包空格 / 商店行共用以外的地方）")]
+        public Sprite slotEmpty;
+
+        [Tooltip("物品格选中态底图（金色描边）")]
+        public Sprite slotSelected;
+
+        [Tooltip("详情窗口底图")]
+        public Sprite tooltipPanel;
+
+        [Tooltip("HUD 背包按钮上的布袋图标")]
+        public Sprite bagIcon;
+
         static UiTheme _cached;
 
         public static UiTheme Instance

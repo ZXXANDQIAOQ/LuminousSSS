@@ -349,6 +349,13 @@ namespace LuminousSSS.EditorTools
             theme.slot = S(UiRoot + "v2_ui_slot_item.png");
             theme.goldPlate = S(UiRoot + "v2_ui_currency_plate.png");
             theme.coinIcon = S("V2/Items/v2_item_coin_gold.png");
+
+            // ---- v0.16：背包面板用到的几张（空格 / 金框 / 详情底 / HUD 布袋图标）
+            theme.panelInventory = S(UiRoot + "v2_ui_panel_inventory.png");
+            theme.slotEmpty = S(UiRoot + "v2_ui_slot_empty.png");
+            theme.slotSelected = S(UiRoot + "v2_ui_slot_selected.png");
+            theme.tooltipPanel = S(UiRoot + "v2_ui_tooltip_panel.png");
+            theme.bagIcon = S(UiRoot + "v2_ui_icon_bag.png");   // Tools/gen_ui_bag_icon.py 生成
             EditorUtility.SetDirty(theme);
 
             AssetDatabase.SaveAssets();
@@ -1684,6 +1691,36 @@ namespace LuminousSSS.EditorTools
             AddOutline(coinLabel, WoodTextOutline, 1.5f);
 
             coinGO.GetComponent<CoinHud>().label = coinLabel;
+
+            // ---- 背包按钮（右上角，v0.16）：与左上金币条同高，形成对角平衡
+            // 打开的是运行时创建的 BackpackPanel（DontDestroyOnLoad），四个游戏场景共用一份。
+            var bagGO = new GameObject("BackpackButton",
+                                       typeof(RectTransform), typeof(Image), typeof(Button),
+                                       typeof(BackpackButton));
+            bagGO.transform.SetParent(root, false);
+            var bagRt = bagGO.GetComponent<RectTransform>();
+            bagRt.anchorMin = bagRt.anchorMax = new Vector2(1f, 1f);   // 锚右上角
+            bagRt.pivot = new Vector2(1f, 1f);
+            bagRt.sizeDelta = new Vector2(96f, 96f);
+            bagRt.anchoredPosition = new Vector2(-JoystickInset, -JoystickInset);
+
+            var bagImg = bagGO.GetComponent<Image>();
+            bagImg.sprite = S(UiBtnWood);
+            bagImg.type = Image.Type.Sliced;
+            bagImg.pixelsPerUnitMultiplier = UiPpu;
+            bagImg.raycastTarget = true;
+
+            var bagBtn = bagGO.GetComponent<Button>();
+            bagBtn.targetGraphic = bagImg;
+            bagBtn.colors = MakeButtonColors();
+
+            var bagIcon = CreateCentered<Image>("Icon", bagGO.transform, new Vector2(58f, 58f));
+            bagIcon.sprite = S(UiRoot + "v2_ui_icon_bag.png");
+            bagIcon.preserveAspect = true;
+            bagIcon.raycastTarget = false;
+
+            var bagDriver = bagGO.GetComponent<BackpackButton>();
+            UnityEventTools.AddVoidPersistentListener(bagBtn.onClick, bagDriver.OnClickOpen);
         }
 
         /// <summary>锚点与轴心都取 (0.5,0.5) 的 UI 元素 —— 相对父节点居中。</summary>

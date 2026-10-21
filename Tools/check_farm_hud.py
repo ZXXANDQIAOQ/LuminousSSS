@@ -202,6 +202,29 @@ def check_common(docs, gos):
           any(c == 114 and re.search(r'^  label: \{fileID: \d+', b, re.M) for c, b in coin),
           '看 label 引用')
 
+    # ---- 背包 HUD（v0.16）
+    # 按钮本身的脚本没有序列化字段，靠 UnityEvent 的持久化监听识别：
+    # 场景里会明文写 m_TargetAssemblyTypeName: LuminousSSS.BackpackButton 和 m_MethodName: OnClickOpen。
+    # 这两行缺任意一行 = 按钮点下去什么都不会发生（运行时 AddListener 不会被序列化）。
+    bag = [docs.get(f, (None, '')) for f in gos.get('BackpackButton', [])]
+    check('存在 HUD「BackpackButton」',
+          'BackpackButton' in gos, '从 HUD 右下角的摇杆旁边找右上角')
+    check('背包按钮绑定了 OnClickOpen（持久化监听，不是运行时 AddListener）',
+          any('LuminousSSS.BackpackButton' in b and 'm_MethodName: OnClickOpen' in b for _, b in bag),
+          '看 m_TargetAssemblyTypeName / m_MethodName')
+    n_bag_mb = len([1 for c, b in bag if c == 114])
+    check('背包按钮挂了 3 个组件（Image + Button + BackpackButton）', n_bag_mb >= 3,
+          f'实测 {n_bag_mb} 个 MonoBehaviour')
+
+    bag_rt = docs.get(rt_of(docs, gos.get('BackpackButton', [])), (None, ''))[1]
+    if bag_rt:
+        amin = re.search(r'm_AnchorMin: \{x: ([\d.-]+), y: ([\d.-]+)\}', bag_rt)
+        check('背包按钮锚定右上角 (1,1)（不和摇杆抢地方）',
+              bool(amin and amin.group(1) == '1' and amin.group(2) == '1'),
+              f'min=({amin.group(1)},{amin.group(2)})' if amin else '读不到锚点')
+    else:
+        check('背包按钮的 RectTransform 存在', False)
+
     # Missing Script 检查（类名与文件名不一致时会踩）
     orphan = []
     for fid, (cls, body) in docs.items():
@@ -396,12 +419,37 @@ def main():
                  'Assets/Scripts/Gameplay/FishingSpot.cs',
                  'Assets/Scripts/Gameplay/PlantSpot.cs',
                  'Assets/Scripts/UI/ShopPanel.cs',
-                 'Assets/Scripts/UI/CoinHud.cs')
+                 'Assets/Scripts/UI/CoinHud.cs',
+                 # v0.16 背包
+                 'Assets/Art/V2/UI/v2_ui_icon_bag.png',
+                 'Assets/Art/V2/UI/v2_ui_panel_inventory.png',
+                 'Assets/Art/V2/UI/v2_ui_slot_empty.png',
+                 'Assets/Art/V2/UI/v2_ui_slot_selected.png',
+                 'Assets/Art/V2/UI/v2_ui_tooltip_panel.png',
+                 'Assets/Scripts/UI/BackpackPanel.cs',
+                 'Assets/Scripts/UI/BackpackButton.cs',
+                 'Assets/Scripts/UI/UiFactory.cs',
+                 'Assets/Scripts/UI/UiModal.cs')
     miss = [p for p in need_meta if not guid_of(p)]
     if miss:
         print('[FAIL] 缺 .meta：' + '、'.join(os.path.basename(p) for p in miss)
               + ' —— 请先在编辑器里打开一次工程，让引擎导入新素材与新脚本，再跑生成菜单。')
         return 1
+
+    # UiTheme 是运行时 UI 的唯一底图来源，少一个字段对应面板就会画成白块。
+    # 这项只在全局查一次（RESULTS 会在每个场景开头清空，所以不进 check 列表）。
+    theme_path = os.path.join(ROOT, 'Assets/Resources/UiTheme.asset')
+    theme_txt = open(theme_path, encoding='utf-8').read() if os.path.exists(theme_path) else ''
+    theme_bad = []
+    for field in ('panelInventory', 'slotEmpty', 'slotSelected', 'tooltipPanel', 'bagIcon'):
+        m = re.search(rf'^  {field}: \{{fileID: (\d+)', theme_txt, re.M)
+        if not (m and m.group(1) != '0'):
+            theme_bad.append(field)
+    if theme_bad:
+        print('[FAIL] UiTheme 缺底图引用：' + '、'.join(theme_bad)
+              + ' —— 重跑生成菜单（EnsureItemDatabase）让字段填上。')
+        return 1
+    print('[ OK ] UiTheme 的背包底图 / 空格 / 金框 / 详情底 / 布袋图标已就位')
 
     targets = [(FARM, '农场')]
     if not farm_only:

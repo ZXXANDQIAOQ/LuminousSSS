@@ -14,7 +14,8 @@ namespace LuminousSSS
     ///   2) 村庄 / 农场两个场景都要能开同一个商店，预制体得各放一份或做成常驻，
     ///      反而多一层生命周期要维护。
     ///
-    /// 打开时冻结 timeScale：面板是模态的，玩家不该在数钱时被怪物/摇杆带着跑。
+    /// 打开时冻结 timeScale（走 <see cref="UiModal"/>，因为背包面板也会冻结它）：
+    /// 面板是模态的，玩家不该在数钱时被怪物/摇杆带着跑。
     /// Toast 与所有淡入淡出都用 unscaledDeltaTime，所以关闭状态下提示照常显示。
     /// </summary>
     public class ShopPanel : MonoBehaviour
@@ -26,7 +27,7 @@ namespace LuminousSSS
         const float PanelW = 1180f;
         const float PanelH = 800f;
         const float RowH = 118f;
-        const float UiPpu = 100f / 64f;    // 与 HUD 一致：九宫格边框按素材原始像素 1:1
+        const float UiPpu = UiFactory.UiPpu;    // 与 HUD 一致：九宫格边框按素材原始像素 1:1
 
         static ShopPanel _inst;
 
@@ -43,6 +44,8 @@ namespace LuminousSSS
         /// <summary>打开商店（已打开时只切到购买页，不重复建 UI）。</summary>
         public static void Open(string title = "村口集市")
         {
+            if (BackpackPanel.IsOpen) BackpackPanel.Close();   // 两个模态互斥
+
             if (_inst == null)
             {
                 var go = new GameObject("[ShopPanel]");
@@ -55,14 +58,14 @@ namespace LuminousSSS
             _inst._root.SetActive(true);
             _inst._buyTab = true;
             _inst.Refresh();
-            Time.timeScale = 0f;      // 模态：冻结游戏时间
+            UiModal.Apply();
         }
 
         public static void Close()
         {
             if (_inst == null || _inst._root == null) return;
             _inst._root.SetActive(false);
-            Time.timeScale = 1f;
+            UiModal.Apply();
         }
 
         // ------------------------------------------------------------ 构建
@@ -91,7 +94,7 @@ namespace LuminousSSS
             var dim = new GameObject("Dim", typeof(RectTransform), typeof(Image));
             dim.transform.SetParent(canvasRt, false);
             var dimRt = dim.GetComponent<RectTransform>();
-            Stretch(dimRt, 0f);
+            UiFactory.Stretch(dimRt, 0f);
             var dimImg = dim.GetComponent<Image>();
             dimImg.color = new Color(0f, 0f, 0f, 0.55f);
             dimImg.raycastTarget = true;
@@ -113,7 +116,7 @@ namespace LuminousSSS
             panelImg.color = new Color(1f, 0.98f, 0.94f, 1f);
 
             // ---- 标题
-            _titleText = MakeText(panel.transform, title, 46, TextAnchor.MiddleLeft,
+            _titleText = UiFactory.MakeText(panel.transform, title, 46, TextAnchor.MiddleLeft,
                                   new Color32(74, 42, 12, 255));
             var titleRt = _titleText.rectTransform;
             titleRt.anchorMin = titleRt.anchorMax = new Vector2(0f, 1f);
@@ -122,7 +125,7 @@ namespace LuminousSSS
             titleRt.anchoredPosition = new Vector2(56f, -32f);
 
             // ---- 关闭按钮（右上角）
-            var closeBtn = MakeButton(panel.transform, "✕", new Vector2(76f, 76f), () => Close(), false);
+            var closeBtn = UiFactory.MakeButton(panel.transform, "×", new Vector2(76f, 76f), () => Close(), false);
             var closeRt = closeBtn.GetComponent<RectTransform>();
             closeRt.anchorMin = closeRt.anchorMax = new Vector2(1f, 1f);
             closeRt.pivot = new Vector2(1f, 1f);
@@ -153,7 +156,7 @@ namespace LuminousSSS
             coinIconImg.preserveAspect = true;
             coinIconImg.raycastTarget = false;
 
-            _goldText = MakeText(coinPlate.transform, "0", 40, TextAnchor.MiddleLeft,
+            _goldText = UiFactory.MakeText(coinPlate.transform, "0", 40, TextAnchor.MiddleLeft,
                                  new Color32(74, 42, 12, 255));
             var goldRt = _goldText.rectTransform;
             goldRt.anchorMin = goldRt.anchorMax = new Vector2(0f, 0.5f);
@@ -162,15 +165,15 @@ namespace LuminousSSS
             goldRt.anchoredPosition = new Vector2(78f, 0f);
 
             // ---- 两个页签
-            _tabBuy = MakeButton(panel.transform, "买种子", new Vector2(220f, 72f), () => SwitchTab(true), false);
-            AddTabUnderline(_tabBuy);
+            _tabBuy = UiFactory.MakeButton(panel.transform, "买种子", new Vector2(220f, 72f), () => SwitchTab(true), false);
+            UiFactory.AddTabUnderline(_tabBuy);
             var buyRt = _tabBuy.GetComponent<RectTransform>();
             buyRt.anchorMin = buyRt.anchorMax = new Vector2(1f, 1f);
             buyRt.pivot = new Vector2(1f, 1f);
             buyRt.anchoredPosition = new Vector2(-330f, -118f);
 
-            _tabSell = MakeButton(panel.transform, "卖东西", new Vector2(220f, 72f), () => SwitchTab(false), false);
-            AddTabUnderline(_tabSell);
+            _tabSell = UiFactory.MakeButton(panel.transform, "卖东西", new Vector2(220f, 72f), () => SwitchTab(false), false);
+            UiFactory.AddTabUnderline(_tabSell);
             var sellRt = _tabSell.GetComponent<RectTransform>();
             sellRt.anchorMin = sellRt.anchorMax = new Vector2(1f, 1f);
             sellRt.pivot = new Vector2(1f, 1f);
@@ -230,8 +233,8 @@ namespace LuminousSSS
             if (_listContent == null) return;
 
             _goldText.text = Inventory.Gold.ToString();
-            TintTab(_tabBuy, _buyTab);
-            TintTab(_tabSell, !_buyTab);
+            UiFactory.TintTab(_tabBuy, _buyTab);
+            UiFactory.TintTab(_tabSell, !_buyTab);
 
             // 清空旧行：先摘出层级再销毁，否则 Destroy 延迟到帧末，本帧布局里还留着旧行
             while (_listContent.childCount > 0)
@@ -315,9 +318,9 @@ namespace LuminousSSS
             row.transform.SetParent(_listContent, false);
             row.GetComponent<LayoutElement>().preferredHeight = RowH;
 
-            var text = MakeText(row.transform, message, 32, TextAnchor.MiddleCenter,
+            var text = UiFactory.MakeText(row.transform, message, 32, TextAnchor.MiddleCenter,
                                 new Color32(120, 88, 52, 255));
-            Stretch(text.rectTransform, 0f);
+            UiFactory.Stretch(text.rectTransform, 0f);
         }
 
         /// <summary>一行：图标 + 名称/说明 + 右侧一两个操作按钮。</summary>
@@ -368,11 +371,11 @@ namespace LuminousSSS
             tbVlg.childForceExpandWidth = true;
             tbVlg.childForceExpandHeight = false;
 
-            var nameText = MakeText(textBlock.transform, def.displayName, 34, TextAnchor.MiddleLeft,
+            var nameText = UiFactory.MakeText(textBlock.transform, def.displayName, 34, TextAnchor.MiddleLeft,
                                     new Color32(74, 42, 12, 255));
             nameText.gameObject.AddComponent<LayoutElement>().preferredHeight = 44f;
 
-            var subText = MakeText(textBlock.transform, subtitle, 26, TextAnchor.MiddleLeft,
+            var subText = UiFactory.MakeText(textBlock.transform, subtitle, 26, TextAnchor.MiddleLeft,
                                    new Color32(126, 92, 52, 255));
             subText.horizontalOverflow = HorizontalWrapMode.Wrap;
             subText.gameObject.AddComponent<LayoutElement>().preferredHeight = 34f;
@@ -392,7 +395,7 @@ namespace LuminousSSS
 
             foreach (var (label, act) in actions)
             {
-                MakeButton(btnGroup.transform, label, new Vector2(160f, 70f), act, true);
+                UiFactory.MakeButton(btnGroup.transform, label, new Vector2(160f, 70f), act, true);
             }
         }
 
@@ -402,6 +405,16 @@ namespace LuminousSSS
         {
             var def = ItemDatabase.Find(seedId);
             if (def == null) return;
+
+            // 先探背包空间再扣钱：反过来的话「钱扣了、东西装不下」就是白花
+            if (!Inventory.CanAdd(seedId, count))
+            {
+                Toast.Show(Inventory.IsFull
+                    ? "背包满了 —— 先卖掉一些再来买"
+                    : $"{def.displayName} 一格最多放 {Inventory.StackMax} 包");
+                AudioManager.Click();
+                return;
+            }
 
             int cost = def.buyPrice * count;
             if (!Inventory.TrySpendGold(cost))
@@ -440,110 +453,13 @@ namespace LuminousSSS
         {
             // ESC 关闭（Esc 在 PC 上是关闭弹窗的通用键）
             if (IsOpen && Input.GetKeyDown(KeyCode.Escape)) Close();
-            // 关闭时保证时间恢复：哪怕外部直接 SetActive(false) 也不会把游戏永久冻住
-            if (!IsOpen && Time.timeScale == 0f) Time.timeScale = 1f;
+
+            // 兜底：外部直接 SetActive(false) / 背包面板还开着时，时间不能永久冻住
+            if (!IsOpen) UiModal.Apply();
         }
 
-        static void Stretch(RectTransform rt, float inset)
-        {
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = new Vector2(inset, inset);
-            rt.offsetMax = new Vector2(-inset, -inset);
-        }
-
-        static Text MakeText(Transform parent, string content, int size, TextAnchor align, Color color)
-        {
-            var go = new GameObject("Text", typeof(RectTransform), typeof(Text));
-            go.transform.SetParent(parent, false);
-            var text = go.GetComponent<Text>();
-            text.font = GameData.GetUIFont();          // 内置字体没有中文字形，必须用系统动态字体
-            text.text = content;
-            text.fontSize = size;
-            text.alignment = align;
-            text.color = color;
-            text.raycastTarget = false;
-            text.horizontalOverflow = HorizontalWrapMode.Overflow;
-            text.verticalOverflow = VerticalWrapMode.Overflow;
-            return text;
-        }
-
-        static Button MakeButton(Transform parent, string label, Vector2 size, System.Action onClick, bool addLayout)
-        {
-            var go = new GameObject("Btn_" + label, typeof(RectTransform), typeof(Image), typeof(Button));
-            go.transform.SetParent(parent, false);
-
-            var img = go.GetComponent<Image>();
-            img.sprite = ButtonSprite;
-            img.type = Image.Type.Sliced;
-            img.pixelsPerUnitMultiplier = UiPpu;
-            img.raycastTarget = true;
-
-            var btn = go.GetComponent<Button>();
-            btn.targetGraphic = img;
-            btn.colors = ButtonColors();
-            btn.onClick.AddListener(() => onClick?.Invoke());
-
-            var rt = go.GetComponent<RectTransform>();
-            rt.sizeDelta = size;
-
-            if (addLayout)
-            {
-                var le = go.AddComponent<LayoutElement>();
-                le.preferredWidth = size.x;
-                le.preferredHeight = size.y;
-            }
-
-            var text = MakeText(go.transform, label, 32, TextAnchor.MiddleCenter,
-                                new Color32(255, 243, 208, 255));
-            Stretch(text.rectTransform, 4f);
-
-            var outline = text.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0.29f, 0.15f, 0.03f, 0.85f);
-            outline.effectDistance = new Vector2(2f, -2f);
-
-            return btn;
-        }
-
-        static ColorBlock ButtonColors()
-        {
-            var c = ColorBlock.defaultColorBlock;
-            c.normalColor = Color.white;
-            c.highlightedColor = new Color(1f, 0.95f, 0.86f);
-            c.pressedColor = new Color(0.86f, 0.78f, 0.66f);
-            c.disabledColor = new Color(0.62f, 0.58f, 0.52f, 0.6f);
-            return c;
-        }
-
-        /// <summary>
-        /// 页签底部的高亮条（选中的才显示）。
-        ///
-        /// 不用改 Image.color 来区分选中：Button 的 ColorTint 过渡每帧会把 color
-        /// 写回 normalColor，手动压暗会被立刻覆盖 —— 挂一条独立的小图更稳。
-        /// </summary>
-        static void AddTabUnderline(Button tab)
-        {
-            if (tab == null) return;
-            var go = new GameObject("Underline", typeof(RectTransform), typeof(Image));
-            go.transform.SetParent(tab.transform, false);
-            var rt = go.GetComponent<RectTransform>();
-            rt.anchorMin = new Vector2(0.09f, 0f);
-            rt.anchorMax = new Vector2(0.91f, 0f);
-            rt.pivot = new Vector2(0.5f, 0f);
-            rt.sizeDelta = new Vector2(0f, 7f);
-            rt.anchoredPosition = new Vector2(0f, 9f);
-
-            var img = go.GetComponent<Image>();
-            img.color = new Color32(255, 206, 92, 255);
-            img.raycastTarget = false;
-        }
-
-        static void TintTab(Button tab, bool active)
-        {
-            if (tab == null) return;
-            var line = tab.transform.Find("Underline");
-            if (line != null) line.gameObject.SetActive(active);
-        }
+        // UI 铺排工具统一在 UiFactory（MakeText / MakeButton / AddTabUnderline …），
+        // 背包面板与商店面板共用同一套，改一处两边都生效。
 
         // 底图统一从 UiTheme 拿（素材只有一份，见 UiTheme 的注释）
         static Sprite PanelSprite => UiTheme.Instance != null ? UiTheme.Instance.panel : null;

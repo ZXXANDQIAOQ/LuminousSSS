@@ -126,6 +126,14 @@ namespace LuminousSSS
             StopFishing(null);
             if (string.IsNullOrEmpty(fishId)) return;
 
+            // 背包满了就直接放生，不硬塞（Inventory.Add 会拒绝，这里先说清楚）
+            if (!Inventory.CanAdd(fishId, 1))
+            {
+                Toast.Show("背包满了，鱼挣脱跑了 —— 去集市卖掉一些");
+                AudioManager.Click();
+                return;
+            }
+
             Inventory.Add(fishId, 1);
             Toast.Show($"钓到 {ItemDatabase.NameOf(fishId)} ×1");
             AudioManager.Confirm();

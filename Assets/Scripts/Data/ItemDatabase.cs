@@ -88,6 +88,23 @@ namespace LuminousSSS
             return def != null ? def.icon : null;
         }
 
+        /// <summary>物品在表里的下标，查不到返回 int.MaxValue（排序时沉到最后）。</summary>
+        public static int IndexOf(string id)
+        {
+            var db = Instance;
+            if (db == null || db.items == null || string.IsNullOrEmpty(id)) return int.MaxValue;
+            for (int i = 0; i < db.items.Length; i++)
+                if (db.items[i] != null && db.items[i].id == id) return i;
+            return int.MaxValue;
+        }
+
+        /// <summary>物品类别（查不到按作物算，调用方一般不依赖这个兜底）。</summary>
+        public static ItemKind KindOf(string id)
+        {
+            var def = Find(id);
+            return def != null ? def.kind : ItemKind.Crop;
+        }
+
         /// <summary>该 id 的所有可出售物品（sellPrice > 0）。商店的「收购」列表只列这些。</summary>
         public static bool IsSellable(string id)
         {

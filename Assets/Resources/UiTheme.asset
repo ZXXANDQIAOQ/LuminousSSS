@@ -17,3 +17,8 @@ MonoBehaviour:
   slot: {fileID: 21300000, guid: df12a40dcd2289d4585df5d24d954c81, type: 3}
   goldPlate: {fileID: 21300000, guid: b7962de71e5b87a40a3d0220c9a8cc93, type: 3}
   coinIcon: {fileID: 21300000, guid: a280e73308cc2eb4eb50c6ba7429f23b, type: 3}
+  panelInventory: {fileID: 21300000, guid: f1aa2a541eafd0245b273340cebad9df, type: 3}
+  slotEmpty: {fileID: 21300000, guid: 92be23fce89a8ed43acdfe962016fd57, type: 3}
+  slotSelected: {fileID: 21300000, guid: 28cf4f2e15e63354581d1db784ca7a40, type: 3}
+  tooltipPanel: {fileID: 21300000, guid: c8cdf95f1279cf743b1aea6d882f98df, type: 3}
+  bagIcon: {fileID: 21300000, guid: 3ba48ea7a854b224cb0e3484e517caf3, type: 3}
