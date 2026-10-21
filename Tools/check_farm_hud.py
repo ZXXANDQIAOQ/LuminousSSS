@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """离线校验生成的游戏场景是否「结构完整」（不开编辑器，只读场景 YAML）。
 
-覆盖 4 个场景里的 3 个玩法场景：FarmScene / House1FScene / House2FScene。
+覆盖 4 个玩法场景：FarmScene / House1FScene / House2FScene / VillageScene。
 
 为什么需要这个脚本：
     「手机端不能移动」的根因是农场场景没有 Canvas / EventSystem，摇杆无处安放；
@@ -12,7 +12,9 @@
     1. 通用 HUD：Canvas + EventSystem + 摇杆三件套 + CanvasScaler 参数 + 玩家控制器；
     2. 传送链路（v0.14）：每个门 / 楼梯都有 ScenePortal，且 targetScene / spawnPointId 正确，
        每个场景都有能接住它的 PlayerSpawnPoint；
-    3. 室内专属：地板 Tilemap、家具数量、相机 bounds 与房间尺寸一致。
+    3. 室内专属：地板 Tilemap、家具数量、相机 bounds 与房间尺寸一致；
+    4. v0.15 集市与池塘：农场的池塘水面 / 碰撞 / 钓鱼点、土路尽头的集市传送口，
+       集市里的两个交易入口（ShopKeeper）与回农场的路、金币 HUD。
 
 用法：
     python Tools/check_farm_hud.py
@@ -30,6 +32,7 @@ SCENES_DIR = os.path.join(ROOT, 'Assets/Scenes')
 FARM = os.path.join(SCENES_DIR, 'FarmScene.scene')
 HOUSE1F = os.path.join(SCENES_DIR, 'House1FScene.scene')
 HOUSE2F = os.path.join(SCENES_DIR, 'House2FScene.scene')
+VILLAGE = os.path.join(SCENES_DIR, 'VillageScene.scene')
 LOGIN_SCENE = os.path.join(SCENES_DIR, 'LoginScene.scene')
 
 DOC_RE = re.compile(r'^--- !u!(\d+) &(\d+)(?: stripped)?\n', re.M)
@@ -193,6 +196,12 @@ def check_common(docs, gos):
           any(c == 114 and re.search(r'^  label: \{fileID: \d+', b, re.M) for c, b in act),
           '看 label 引用')
 
+    # 金币 HUD（v0.15）：集市买卖要能随时看到余额
+    coin = [docs.get(f, (None, '')) for f in gos.get('CoinHud', [])]
+    check('存在 HUD「CoinHud」且绑定了数字 Text',
+          any(c == 114 and re.search(r'^  label: \{fileID: \d+', b, re.M) for c, b in coin),
+          '看 label 引用')
+
     # Missing Script 检查（类名与文件名不一致时会踩）
     orphan = []
     for fid, (cls, body) in docs.items():
@@ -302,6 +311,67 @@ def check_farmland(docs, gos):
           ('缺项：' + '；'.join(bad[:4])) if bad else f'实测 {len(trees)} 棵')
 
 
+def check_pond(docs, gos):
+    """农场池塘（v0.15）：水面图、挡水的碰撞盒、岸边钓鱼点。
+
+    三样缺一不可：
+      水面图缺失 → 那里只有草地，玩家找不到池塘；
+      碰撞盒缺失 → 玩家能走进水里（视觉穿帮，而且能走到池塘中央）；
+      FishingSpot 缺失 → 走得到水边但按不出「钓鱼」。
+    """
+    check('农场有池塘水面「v2_nature_pond」', 'v2_nature_pond' in gos)
+
+    # 水面碰撞：PondWater 上必须有 BoxCollider2D 且**不是** trigger（要真挡人）
+    box = [docs.get(f, (None, ''))[1] for f in gos.get('PondWater', [])
+           if docs.get(f, (None, ''))[0] == 61]
+    solid = bool(box and re.search(r'm_IsTrigger: 0', box[0]))
+    check('池塘水面有实心碰撞（走不进水里）', solid,
+          f'找到 {len(box)} 个 BoxCollider2D' if box else '没有 PondWater 的碰撞盒')
+
+    # 钓鱼点：BoxCollider2D 必须是 trigger（只检测不挡路）+ FishingSpot 字段齐全
+    fbox = [docs.get(f, (None, ''))[1] for f in gos.get('FishingSpot', [])
+            if docs.get(f, (None, ''))[0] == 61]
+    check('钓鱼点的碰撞盒是 isTrigger（不挡路）',
+          bool(fbox and re.search(r'm_IsTrigger: 1', fbox[0])),
+          f'找到 {len(fbox)} 个 BoxCollider2D')
+
+    _, body = comp_with(docs, gos, 'FishingSpot', 'biteWindow')
+    if body:
+        has_fish = 'fish_blue' in body
+        win = re.search(r'biteWindow: ([\d.]+)', body)
+        check('FishingSpot 配了鱼种与咬钩窗口', has_fish and bool(win),
+              f'fishIds 含 fish_blue={has_fish}, biteWindow={win.group(1) if win else "?"}')
+    else:
+        check('钓鱼点挂了 FishingSpot', False, '没找到 biteWindow 字段')
+
+
+def check_village_extra(docs, gos):
+    """集市专属：两个交易入口、摊位/水井/路灯、相机 bounds。"""
+    check_camera_bounds(docs, gos, (34.0, 20.0))
+
+    for name in ('ShopKeeper_Shop', 'ShopKeeper_Stall'):
+        _, body = comp_with(docs, gos, name, 'shopTitle')
+        if not body:
+            check(f'交易入口「{name}」存在且挂了 ShopKeeper', False, '没找到目标物体')
+            continue
+        title = re.search(r'shopTitle: (.*)', body)
+        trig = [docs.get(f, (None, ''))[1] for f in gos.get(name, [])
+                if docs.get(f, (None, ''))[0] == 61]
+        check(f'交易入口「{name}」配了店名且是 isTrigger',
+              bool(title and title.group(1).strip() and trig and re.search(r'm_IsTrigger: 1', trig[0])),
+              f'shopTitle={title.group(1).strip() if title else "?"}')
+
+    for name in ('v2_build_stall', 'v2_build_well', 'v2_build_lamp', 'v2_build_fence'):
+        check(f'集市摆了「{name}」', name in gos)
+
+    # 广场地面：至少要有 Tilemap（草地 + 沙地两张，或至少一张）
+    tiles = [1 for cls, _ in docs.values() if cls in (183, 1839735485)]
+    check('集市有地面 Tilemap', len(tiles) >= 1, f'找到 {len(tiles)} 个 Tilemap')
+
+    sprites = sum(1 for cls, _ in docs.values() if cls == 212)
+    check('集市摆了建筑与道具（SpriteRenderer ≥ 20）', sprites >= 20, f'实测 {sprites} 个 SpriteRenderer')
+
+
 def main():
     farm_only = '--farm-only' in sys.argv
 
@@ -313,7 +383,20 @@ def main():
                  'Assets/Scripts/Gameplay/PlayerController.cs',
                  'Assets/Scripts/Gameplay/CameraFollow.cs',
                  'Assets/Scripts/Gameplay/ScenePortal.cs',
-                 'Assets/Scripts/Core/SceneFlow.cs')
+                 'Assets/Scripts/Core/SceneFlow.cs',
+                 'Assets/Art/V2/Nature/v2_nature_pond.png',
+                 'Assets/Art/V2/Village/v2_build_stall.png',
+                 'Assets/Art/V2/Village/v2_build_well.png',
+                 'Assets/Art/V2/Village/v2_build_lamp.png',
+                 'Assets/Resources/ItemDB.asset',
+                 'Assets/Resources/UiTheme.asset',
+                 'Assets/Scripts/Core/Inventory.cs',
+                 'Assets/Scripts/Data/ItemDatabase.cs',
+                 'Assets/Scripts/Gameplay/ShopKeeper.cs',
+                 'Assets/Scripts/Gameplay/FishingSpot.cs',
+                 'Assets/Scripts/Gameplay/PlantSpot.cs',
+                 'Assets/Scripts/UI/ShopPanel.cs',
+                 'Assets/Scripts/UI/CoinHud.cs')
     miss = [p for p in need_meta if not guid_of(p)]
     if miss:
         print('[FAIL] 缺 .meta：' + '、'.join(os.path.basename(p) for p in miss)
@@ -322,7 +405,7 @@ def main():
 
     targets = [(FARM, '农场')]
     if not farm_only:
-        targets += [(HOUSE1F, '小洋楼 1F'), (HOUSE2F, '小洋楼 2F')]
+        targets += [(HOUSE1F, '小洋楼 1F'), (HOUSE2F, '小洋楼 2F'), (VILLAGE, '村口集市')]
 
     for path, label in targets:
         if not os.path.exists(path):
@@ -340,6 +423,14 @@ def main():
             check_spawn(docs, gos, 'Spawn_Door', 'Door')
             check_camera_bounds(docs, gos, (40.0, 24.0))
             check_farmland(docs, gos)
+            check_pond(docs, gos)
+            # v0.15：土路尽头的集市传送口 + 回农场的落点
+            check_portal(docs, gos, 'RoadToVillage', 'VillageScene', 'Road')
+            check_spawn(docs, gos, 'Spawn_Village', 'Village')
+        elif path == VILLAGE:
+            check_portal(docs, gos, 'RoadToFarm', 'FarmScene', 'Village')
+            check_spawn(docs, gos, 'Spawn_Road', 'Road')
+            check_village_extra(docs, gos)
         elif path == HOUSE1F:
             check_portal(docs, gos, 'DoorToFarm', 'FarmScene', 'Door')
             check_portal(docs, gos, 'StairsTo2F', 'House2FScene', 'Default')
@@ -357,7 +448,7 @@ def main():
             print(f'结论：FAIL —— ' + '；'.join(r[0] for r in bad))
             return 1
 
-    print('\n结论：PASS —— 农场与两层小洋楼的结构、HUD、传送链路全部就位')
+    print('\n结论：PASS —— 农场 / 两层小洋楼 / 集市的 HUD、传送链路、池塘与交易入口全部就位')
     return 0
 
 

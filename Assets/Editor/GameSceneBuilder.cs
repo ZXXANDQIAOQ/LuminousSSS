@@ -115,6 +115,23 @@ namespace LuminousSSS.EditorTools
         const float RoomDoorX = 13f;         // 一楼大门（底部中心）
         const float RoomStairsX = 22.5f;     // 楼梯（右上角）
 
+        // ---- 村口集市（v0.15）：沿农场土路往下走可达
+        // 34 x 20：比农场小一圈，一屏能看出「这是个聚落」而不是旷野。
+        // 布局：北侧一排房子（杂货铺居中），中央石板广场，南侧土路接农场方向。
+        const int VillageW = 34;
+        const int VillageH = 20;
+        const int VillageWallRows = 2;
+        static readonly RectInt PlazaRect = new RectInt(7, 4, 20, 9);   // 广场（x 7..26, y 4..12）
+        const int VillageRoadLeft = 16;       // 广场 -> 底部出口的土路（两列：16 / 17）
+        const float VillageCamSize = 6.5f;
+
+        // ---- 农场池塘（v0.15）：右侧水塘，岸边可钓鱼
+        // 水面贴图 10x6 格，底部对齐到 groundY，所以中心 = groundY + 3 格
+        const float PondX = 34f;
+        const float PondGroundY = 1.6f;
+        const float PondW = 10f;
+        const float PondH = 6f;
+
     // ---- 农场 HUD（虚拟摇杆）
     // 尺寸与素材 1:1（gen_ui_joystick.py 出 288 / 128），Point 过滤下不会出现非整数缩放毛边
     const float JoystickTouchSize = 480f;   // 触摸热区边长（隐形，比底圈大一圈，手指不用瞄准）
@@ -145,17 +162,19 @@ namespace LuminousSSS.EditorTools
 
             EnsureFolders();
             EnsureTiles();
+            EnsureItemDatabase();            // v0.15：物品表 + UI 主题（商店 / 播种 / 钓鱼用）
             EnsureCharacterAnimations();     // 剪辑：每角色 idle + 四方向行走（缺帧的角色跳过）
             EnsureCharacterControllers();    // 控制器：每角色一个四方向状态机
             BuildLoginScene();
             BuildFarmScene();
             BuildHouseScenes();          // v0.14：小洋楼 1F / 2F
+            BuildVillageScene();         // v0.15：村口集市（集市 / 商店 / 池塘另一头）
             RegisterBuildScenes();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
 
             EditorSceneManager.OpenScene(ScenesDir + "/LoginScene.scene");
-            Debug.Log("[LuminousSSS] 场景生成完成：LoginScene / FarmScene / House1FScene / House2FScene"
+            Debug.Log("[LuminousSSS] 场景生成完成：LoginScene / FarmScene / House1FScene / House2FScene / VillageScene"
                       + "（已为你打开 LoginScene，直接点播放即可）。");
         }
 
@@ -168,6 +187,7 @@ namespace LuminousSSS.EditorTools
         {
             EnsureFolders();
             EnsureTiles();
+            EnsureItemDatabase();
             EnsureCharacterAnimations();
             EnsureCharacterControllers();
             BuildFarmScene();
@@ -175,6 +195,26 @@ namespace LuminousSSS.EditorTools
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/FarmScene.scene（登录场景未动）。");
+        }
+
+        /// <summary>
+        /// 只重建村口集市（AutoBuildScenes 用；不动农场 / 房间 / 登录）。
+        /// 集市只用到地面瓦片 + 建筑素材，不需要动画与控制器 —— 但仍要保证物品表在
+        /// （商店打开要靠 ItemDB 才有货），所以清单里保留 EnsureItemDatabase。
+        /// </summary>
+        [MenuItem("Tools/LuminousSSS/4. 生成村口集市", false, 202)]
+        internal static void BuildVillageSceneOnly()
+        {
+            EnsureFolders();
+            EnsureTiles();
+            EnsureItemDatabase();
+            EnsureCharacterAnimations();
+            EnsureCharacterControllers();
+            BuildVillageScene();
+            RegisterBuildScenes();
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+            Debug.Log("[LuminousSSS] 已重建 Assets/Scenes/VillageScene.scene（其他场景未动）。");
         }
 
         /// <summary>
@@ -221,6 +261,99 @@ namespace LuminousSSS.EditorTools
                 if (!AssetDatabase.IsValidFolder(d))
                     AssetDatabase.CreateFolder(System.IO.Path.GetDirectoryName(d).Replace('\\', '/'),
                                               System.IO.Path.GetFileName(d));
+        }
+
+        // ------------------------------------------------------------ 物品表 / UI 主题（v0.15）
+
+        const string ResourcesDir = "Assets/Resources";
+
+        /// <summary>
+        /// 生成（或整份刷新）两张运行时资产表：
+        ///   Assets/Resources/ItemDB.asset    物品定义与买卖价（商店 / 播种 / 钓鱼共用）
+        ///   Assets/Resources/UiTheme.asset   运行时 UI 的底图引用（商店面板用）
+        ///
+        /// 为什么放 Resources：ShopPanel、PlantSpot、FishingSpot 都是运行时才创建的对象，
+        /// 拿不到场景里的序列化引用，Resources.Load 是唯一不需要外部引用的加载方式；
+        /// 而美术只保留 Assets/Art/V2 下那一份，这里存的是引用而不是复制品。
+        ///
+        /// 每次构建都整份重建 —— 价格、图标、生长帧以本方法为唯一真相，手改 asset 会被覆盖。
+        /// </summary>
+        internal static void EnsureItemDatabase()
+        {
+            if (!AssetDatabase.IsValidFolder(ResourcesDir))
+                AssetDatabase.CreateFolder("Assets", "Resources");
+
+            // ---- 物品表
+            string dbPath = ResourcesDir + "/ItemDB.asset";
+            var db = A<ItemDatabase>(dbPath);
+            bool dbIsNew = db == null;
+            if (dbIsNew)
+            {
+                db = ScriptableObject.CreateInstance<ItemDatabase>();
+                AssetDatabase.CreateAsset(db, dbPath);
+            }
+
+            Sprite seedCarrot = S("V2/Items/v2_item_seed_carrot.png");
+            Sprite seedRadish = S("V2/Items/v2_item_seed_radish.png");
+            Sprite seedTomato = S("V2/Items/v2_item_seed_tomato.png");
+            Sprite carrot = S("V2/Items/v2_item_carrot.png");
+            Sprite radish = S("V2/Items/v2_item_radish.png");
+            Sprite tomato = S("V2/Items/v2_item_tomato.png");
+            Sprite fishBlue = S("V2/Items/v2_item_fish_blue.png");
+            Sprite fishGold = S("V2/Items/v2_item_fish_gold.png");
+
+            // 三帧幼苗 -> 成株；成熟那一刻换成作物图标（由 PlantSpot 处理）
+            var growth = new[]
+            {
+                S("V2/Items/v2_item_crop_growth_1.png"),
+                S("V2/Items/v2_item_crop_growth_2.png"),
+                S("V2/Items/v2_item_crop_growth_3.png"),
+            };
+
+            // 定价逻辑：种子价 ≈ 成熟作物价的 45%，一包种一株。
+            // 也就是说认真种一轮能翻一倍多，但要走两趟（买种 / 卖货），
+            // 钓鱼（无成本、有运气）作为另一条现金流跟种田互不挤占。
+            db.items = new[]
+            {
+                new ItemDef { id = "seed_carrot", displayName = "胡萝卜种子", kind = ItemKind.Seed,
+                              icon = seedCarrot, buyPrice = 20, sellPrice = 0, seedOf = "carrot", growthFrames = growth },
+                new ItemDef { id = "seed_radish", displayName = "萝卜种子", kind = ItemKind.Seed,
+                              icon = seedRadish, buyPrice = 25, sellPrice = 0, seedOf = "radish", growthFrames = growth },
+                new ItemDef { id = "seed_tomato", displayName = "番茄种子", kind = ItemKind.Seed,
+                              icon = seedTomato, buyPrice = 30, sellPrice = 0, seedOf = "tomato", growthFrames = growth },
+
+                new ItemDef { id = "carrot", displayName = "胡萝卜", kind = ItemKind.Crop,
+                              icon = carrot, buyPrice = 0, sellPrice = 45 },
+                new ItemDef { id = "radish", displayName = "萝卜", kind = ItemKind.Crop,
+                              icon = radish, buyPrice = 0, sellPrice = 38 },
+                new ItemDef { id = "tomato", displayName = "番茄", kind = ItemKind.Crop,
+                              icon = tomato, buyPrice = 0, sellPrice = 62 },
+
+                new ItemDef { id = "fish_blue", displayName = "河鲈", kind = ItemKind.Fish,
+                              icon = fishBlue, buyPrice = 0, sellPrice = 55 },
+                new ItemDef { id = "fish_gold", displayName = "锦鲤", kind = ItemKind.Fish,
+                              icon = fishGold, buyPrice = 0, sellPrice = 130 },
+            };
+            EditorUtility.SetDirty(db);
+
+            // ---- UI 主题（商店 / Toast / 金币条用到的底图）
+            string themePath = ResourcesDir + "/UiTheme.asset";
+            var theme = A<UiTheme>(themePath);
+            if (theme == null)
+            {
+                theme = ScriptableObject.CreateInstance<UiTheme>();
+                AssetDatabase.CreateAsset(theme, themePath);
+            }
+            theme.panel = S(UiPanelTall);
+            theme.button = S(UiBtnWood);
+            theme.slot = S(UiRoot + "v2_ui_slot_item.png");
+            theme.goldPlate = S(UiRoot + "v2_ui_currency_plate.png");
+            theme.coinIcon = S("V2/Items/v2_item_coin_gold.png");
+            EditorUtility.SetDirty(theme);
+
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[LuminousSSS] 物品表已刷新：{db.items.Length} 件物品"
+                      + (dbIsNew ? "（新建）" : "") + "；UI 主题已就绪。");
         }
 
         // ------------------------------------------------------------ Tile 资产
@@ -876,9 +1009,14 @@ namespace LuminousSSS.EditorTools
             PlaceProp(props, "V2/Nature/v2_nature_stump.png", 5.0f, 10.0f, new Vector2(1.5f, 0.8f));
             PlaceProp(props, "V2/Nature/v2_nature_stump.png", 4.4f, 18.0f, new Vector2(1.5f, 0.8f));
 
-            // 右侧：松树
-            foreach (var p in new[] { (37.2f, 5.0f), (37.8f, 11.0f), (37.2f, 17.5f) })
+            // 右侧：松树（v0.15 起右下角是池塘，原本 (37.2, 5.0) 那棵挪到池塘北岸外）
+            foreach (var p in new[] { (37.3f, 12.2f), (37.8f, 11.0f), (37.2f, 17.5f) })
                 PlaceProp(props, "V2/Nature/v2_nature_tree_pine.png", p.Item1, p.Item2, new Vector2(0.9f, 0.7f));
+
+            // ---- v0.15 池塘（右侧）：整张 10x6 格的水面图，底部对齐 groundY=1.6
+            // orderOverride = -95：池塘是"地面"，不能参与 Y 排序 ——
+            // 按 groundY 烘焙会得到 order≈224，把站在岸上的玩家整片盖住。
+            PlaceProp(props, "V2/Nature/v2_nature_pond.png", PondX, PondGroundY, null, MapH, -95);
 
             // 底部：木头 / 石头 / 树桩
             PlaceProp(props, "V2/Nature/v2_nature_log.png", 9.0f, 2.4f, new Vector2(1.5f, 0.6f));
@@ -887,8 +1025,8 @@ namespace LuminousSSS.EditorTools
             PlaceProp(props, "V2/Nature/v2_nature_rock.png", 21.5f, 2.8f, new Vector2(1.5f, 0.9f));
             PlaceProp(props, "V2/Nature/v2_nature_stump.png", 24.5f, 2.5f, new Vector2(1.5f, 0.8f));
 
-            // 土路底部出口旁的木牌
-            PlaceProp(props, "V2/Nature/v2_nature_sign.png", 31.4f, 1.4f, new Vector2(0.7f, 0.6f));
+            // 土路底部出口旁的木牌（v0.15 起这条路通往集市，牌子正好立在路口）
+            PlaceProp(props, "V2/Nature/v2_nature_sign.png", 31.6f, 0.9f, new Vector2(0.7f, 0.6f));
 
             // ---- v0.12 田地种树：砍伐前田地不可见，玩家砍树后才暴露田地（开垦玩法）
             PlantFieldTrees(props, farmland, tilledA, tilledB);
@@ -897,21 +1035,27 @@ namespace LuminousSSS.EditorTools
             DecorateOpenGround(props);
 
             // 纯装饰：草丛 + 野花（避开空地和土路）
+            // v0.15：原本 (33.5, 6.0) / (36.5, 3.5) 两簇草在水里，改到池塘北岸与路口旁
             foreach (var p in new[] {
-                (4.5f, 7.0f), (5.0f, 12.5f), (33.5f, 6.0f), (35.0f, 17.0f),
-                (10.0f, 2.2f), (20.0f, 2.6f), (31.5f, 8.5f), (36.5f, 3.5f) })
+                (4.5f, 7.0f), (5.0f, 12.5f), (30.6f, 9.4f), (35.0f, 17.0f),
+                (10.0f, 2.2f), (20.0f, 2.6f), (31.5f, 8.5f), (37.6f, 8.6f) })
                 PlaceProp(props, "V2/Nature/v2_nature_grass_tuft.png", p.Item1, p.Item2, null);
             PlaceProp(props, "V2/Nature/v2_nature_flower_pink.png", 4.0f, 9.5f, null);
             PlaceProp(props, "V2/Nature/v2_nature_flower_white.png", 5.2f, 16.5f, null);
-            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 34.0f, 10.0f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 34.0f, 10.4f, null);
             PlaceProp(props, "V2/Nature/v2_nature_flower_pink.png", 32.5f, 16.5f, null);
             PlaceProp(props, "V2/Nature/v2_nature_flower_white.png", 12.0f, 2.8f, null);
-            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 37.0f, 8.0f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 36.8f, 9.6f, null);
 
             // ---- 地图边界碰撞（设计文档 4.5）
             var bounds = new GameObject("Bounds").transform;
             MakeWall(bounds, "WallTop", new Vector2(MapW / 2f, MapH - WallRows + 0.5f), new Vector2(MapW + 4, WallRows));
-            MakeWall(bounds, "WallBottom", new Vector2(MapW / 2f, -0.5f), new Vector2(MapW + 4, 1));
+            // v0.15：土路底部要通集市，底墙在土路两列（x 29..31）留出缺口，
+            // 左右各一段补到位 —— 换成一整条墙就再也走不出农场了。
+            const float gateL = PathLeft;          // 29
+            const float gateR = PathLeft + 2f;     // 31
+            MakeWall(bounds, "WallBottomL", new Vector2((-2f + gateL) / 2f, -0.5f), new Vector2(gateL + 2f, 1));
+            MakeWall(bounds, "WallBottomR", new Vector2((gateR + MapW + 2f) / 2f, -0.5f), new Vector2(MapW + 2f - gateR, 1));
             MakeWall(bounds, "WallLeft", new Vector2(-0.5f, MapH / 2f), new Vector2(1, MapH + 4));
             MakeWall(bounds, "WallRight", new Vector2(MapW + 0.5f, MapH / 2f), new Vector2(1, MapH + 4));
 
@@ -921,8 +1065,27 @@ namespace LuminousSSS.EditorTools
             MakePortal(props, "DoorToHouse", new Vector2(HouseDoorX, 13.3f), new Vector2(2.8f, 1.6f),
                        "进入", GameData.SceneHouse1F, GameData.SpawnDefault);
 
+            // ---- v0.15 池塘：水面挡路（不能走进水里），南岸放钓鱼点
+            // 碰撞盒比水面图小一圈：岸边那圈沙地要能站人，否则玩家贴不到水边。
+            MakeWall(bounds, "PondWater", new Vector2(PondX, PondGroundY + PondH * 0.5f),
+                     new Vector2(PondW - 2.4f, PondH - 1.8f));
+            var fishing = new GameObject("FishingSpot", typeof(BoxCollider2D), typeof(FishingSpot));
+            fishing.transform.SetParent(props, false);
+            fishing.transform.position = new Vector3(PondX, PondGroundY + 0.25f, 0f);
+            var fbox = fishing.GetComponent<BoxCollider2D>();
+            fbox.isTrigger = true;                 // 只做交互检测
+            fbox.size = new Vector2(5.2f, 1.0f);
+            var fspot = fishing.GetComponent<FishingSpot>();
+            fspot.bobberOffset = new Vector2(0f, 1.5f);   // 浮标落在水面内侧
+
+            // ---- v0.15 土路尽头：去村口集市
+            MakePortal(props, "RoadToVillage", new Vector2(PathLeft + 1f, 0.6f), new Vector2(2.2f, 1.4f),
+                       "去集市", GameData.SceneVillage, GameData.SpawnRoad);
+
             var spawns = new GameObject("Spawns").transform;
             MakeSpawn(spawns, "Spawn_Door", new Vector3(HouseDoorX, 12.5f, 0f), GameData.SpawnDoor, Vector2.down);
+            // 从集市回来落在这条土路上，面朝上（正对家门）
+            MakeSpawn(spawns, "Spawn_Village", new Vector3(PathLeft + 1f, 1.2f, 0f), GameData.SpawnVillage, Vector2.up);
 
             // ---- 玩家（出生在木屋门口土路上，面向下方）
             var player = CreatePlayer(new Vector3(HouseDoorX, 12.5f, 0f), MapH);
@@ -942,6 +1105,232 @@ namespace LuminousSSS.EditorTools
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenesDir + "/FarmScene.scene");
+        }
+
+        // ------------------------------------------------------------ 村口集市（v0.15）
+
+        /// <summary>
+        /// 村口集市：从农场土路尽头往下走可达（FarmScene 的 RoadToVillage 传送点）。
+        ///
+        /// 布局（34 x 20，内部可走 x 1..33 / y 0..17）：
+        ///   北侧：工作坊 / 杂货铺 / 两栋民居 / 谷仓 一字排开（店铺居中，视线有落点）
+        ///   中央：沙土广场，水井 + 两个摊位 + 两盏路灯
+        ///   南侧：土路接回农场，两侧木栅栏
+        ///
+        /// 交互：
+        ///   杂货铺门口 + 摊位旁各有一个 <see cref="ShopKeeper"/>，打开同一个集市面板
+        ///   （买种子 / 卖作物与鱼）。两个入口是刻意的 —— 从广场哪侧过来都不用绕路。
+        ///
+        /// 与农场一致的规则：1 tile = 1 格，物件「底部对齐 + Y 排序」，相机 bounds 对齐地图。
+        /// </summary>
+        static void BuildVillageScene()
+        {
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+
+            var camGO = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener), typeof(CameraFollow));
+            camGO.tag = "MainCamera";
+            var cam = camGO.GetComponent<Camera>();
+            cam.orthographic = true;
+            cam.orthographicSize = VillageCamSize;
+            cam.clearFlags = CameraClearFlags.SolidColor;
+            cam.backgroundColor = new Color(0.16f, 0.24f, 0.14f);
+            camGO.transform.position = new Vector3(VillageW / 2f, 6f, -10f);
+
+            EnsureAudioManager();
+            BuildGameHud();
+
+            // ---- 地面
+            var gridGO = new GameObject("Grid", typeof(Grid));
+            var tmGO = new GameObject("Ground", typeof(Tilemap), typeof(TilemapRenderer));
+            tmGO.transform.SetParent(gridGO.transform, false);
+            var tm = tmGO.GetComponent<Tilemap>();
+            tmGO.GetComponent<TilemapRenderer>().sortingOrder = -100;
+
+            var grassA = A<Tile>(TilesDir + "/v2_grass_a.asset");
+            var grassB = A<Tile>(TilesDir + "/v2_grass_b.asset");
+            var sand = A<Tile>(TilesDir + "/v2_sand.asset");
+            var cobble = A<Tile>(TilesDir + "/v2_cobble.asset");
+
+            for (int x = -3; x < VillageW + 3; x++)
+                for (int y = -3; y < VillageH + 3; y++)
+                {
+                    int h = Mathf.Abs(x * 73856093 ^ y * 19349663) % 100;
+                    tm.SetTile(new Vector3Int(x, y, 0), h < 62 ? grassA : grassB);
+                }
+
+            var dirtA = A<Tile>(TilesDir + "/v2_dirt_a.asset");
+            var dirtB = A<Tile>(TilesDir + "/v2_dirt_b.asset");
+
+            // 广场：浅沙土（集市踩出来的地面）
+            for (int x = PlazaRect.xMin; x < PlazaRect.xMax; x++)
+                for (int y = PlazaRect.yMin; y < PlazaRect.yMax; y++)
+                    tm.SetTile(new Vector3Int(x, y, 0), sand);
+
+            // 广场外圈铺一圈土块当过渡：沙地直接对草地是硬色块，中间加一层土才像被踩开的边
+            for (int x = PlazaRect.xMin - 1; x <= PlazaRect.xMax; x++)
+                for (int y = PlazaRect.yMin - 1; y <= PlazaRect.yMax; y++)
+                {
+                    if (x >= PlazaRect.xMin && x < PlazaRect.xMax &&
+                        y >= PlazaRect.yMin && y < PlazaRect.yMax) continue;
+                    tm.SetTile(new Vector3Int(x, y, 0), ((x + y) & 1) == 0 ? dirtA : dirtB);
+                }
+
+            // 土路：广场南沿直通地图底部（回农场那个口）
+            for (int y = 0; y < PlazaRect.yMin; y++)
+                for (int x = VillageRoadLeft; x < VillageRoadLeft + 2; x++)
+                    tm.SetTile(new Vector3Int(x, y, 0), sand);
+
+            // 顶部石墙
+            for (int x = -3; x < VillageW + 3; x++)
+                for (int r = 0; r < VillageWallRows; r++)
+                    tm.SetTile(new Vector3Int(x, VillageH - 1 - r, 0), cobble);
+
+            // ---- 物件
+            var props = new GameObject("Props").transform;
+
+            // 北侧一排建筑。groundY 是各自「门口地面」的高度，碰撞盒只挡住底部一条（进不去屋里）
+            PlaceProp(props, "V2/Buildings/v2_building_workshop.png", 5.2f, 13.2f, new Vector2(3.2f, 1.2f));
+            PlaceProp(props, "V2/Buildings/v2_building_shop_striped.png", 11f, 12.6f, new Vector2(3.2f, 1.3f));
+            PlaceProp(props, "V2/Buildings/v2_building_house_red_a.png", 20f, 13.0f, new Vector2(3.0f, 1.2f));
+            PlaceProp(props, "V2/Buildings/v2_building_house_red_b.png", 26.5f, 12.4f, new Vector2(2.8f, 1.2f));
+            PlaceProp(props, "V2/Buildings/v2_building_barn_red.png", 31.4f, 13.0f, new Vector2(4.4f, 1.4f));
+
+            // 店铺门口的木箱木桶（摊位气质）
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 13.2f, 12.1f, new Vector2(1.1f, 1.0f));
+            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 8.3f, 12.3f, new Vector2(1.1f, 1.0f));
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 23.2f, 12.2f, new Vector2(1.1f, 1.0f));
+
+            // ---- 广场中央：水井 + 两个摊位
+            PlaceProp(props, "V2/Village/v2_build_well.png", 17f, 8.2f, new Vector2(1.4f, 0.9f));
+            PlaceProp(props, "V2/Village/v2_build_stall.png", 9f, 7.5f, new Vector2(1.8f, 0.9f));
+            PlaceProp(props, "V2/Village/v2_build_stall.png", 24f, 7.5f, new Vector2(1.8f, 0.9f));
+
+            // 路灯：广场两侧对称，给「有人居住」的暖光点
+            PlaceProp(props, "V2/Village/v2_build_lamp.png", 13.4f, 9.6f, new Vector2(0.4f, 0.4f));
+            PlaceProp(props, "V2/Village/v2_build_lamp.png", 20.6f, 9.6f, new Vector2(0.4f, 0.4f));
+
+            // 广场补装饰：货箱堆 + 集市木牌（否则中央一大片空地显得空）
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 25.6f, 11.4f, new Vector2(1.1f, 1.0f));
+            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 14.4f, 11.6f, new Vector2(1.1f, 1.0f));
+            PlaceProp(props, "V2/Nature/v2_nature_sign.png", 19.4f, 3.2f, new Vector2(0.7f, 0.6f));
+
+            // 广场南沿的木栅栏（把广场和回农场的土路分开，但中间留通路）
+            foreach (float fx in new[] { 11.5f, 12.5f, 21.5f, 22.5f })
+                PlaceProp(props, "V2/Village/v2_build_fence.png", fx, 4.2f, new Vector2(0.9f, 0.4f));
+
+            // 边缘绿化（避开广场与建筑）
+            // (3.0, 16) 会顶出地图（树高 4.7 格，地图只有 20），下移到 14.4
+            foreach (var p in new[] { (2.4f, 5.5f), (2.2f, 10.5f), (3.0f, 14.4f), (32.6f, 6f), (33.2f, 10.5f), (30.5f, 4.6f) })
+                PlaceProp(props, "V2/Nature/v2_nature_tree_broadleaf.png", p.Item1, p.Item2, new Vector2(1.0f, 0.8f));
+            foreach (var p in new[] { (6.2f, 5.2f), (28.2f, 5.4f), (15.5f, 3.0f) })
+                PlaceProp(props, "V2/Nature/v2_nature_bush.png", p.Item1, p.Item2, new Vector2(1.6f, 0.9f));
+            foreach (var p in new[] { (5.0f, 3.2f), (11.0f, 3.4f), (23.5f, 3.2f), (29.5f, 3.6f) })
+                PlaceProp(props, "V2/Nature/v2_nature_grass_tuft.png", p.Item1, p.Item2, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_pink.png", 4.0f, 8.6f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_white.png", 30.0f, 8.2f, null);
+            PlaceProp(props, "V2/Nature/v2_nature_flower_yellow.png", 25.0f, 3.6f, null);
+
+            // ---- 村民（静态小人）：摊位后面站着摊主，井边站着闲聊的村民
+            // 只有农夫的行走帧是全的（其他角色缺方向帧），所以村民也用它，
+            // 靠 tint 区分衣着 —— 玩家选雨女/女巫时不会和村民撞脸。
+            PlaceNpc(props, "Villager_Stall", 9f, 8.4f, new Color(1f, 0.86f, 0.82f), true, VillageH);
+            PlaceNpc(props, "Villager_Stall2", 24f, 8.4f, new Color(0.86f, 0.9f, 1f), true, VillageH);
+            PlaceNpc(props, "Villager_Well", 18.2f, 8.6f, new Color(0.9f, 1f, 0.88f), false, VillageH);
+
+            // ---- 边界
+            var bounds = new GameObject("Bounds").transform;
+            MakeWall(bounds, "WallTop", new Vector2(VillageW / 2f, VillageH - VillageWallRows + 0.5f),
+                     new Vector2(VillageW + 4, VillageWallRows));
+            MakeWall(bounds, "WallLeft", new Vector2(-0.5f, VillageH / 2f), new Vector2(1, VillageH + 4));
+            MakeWall(bounds, "WallRight", new Vector2(VillageW + 0.5f, VillageH / 2f), new Vector2(1, VillageH + 4));
+
+            // 底墙同样在土路处留缺口（回农场的路）
+            const float roadL = VillageRoadLeft;        // 16
+            const float roadR = VillageRoadLeft + 2f;   // 18
+            MakeWall(bounds, "WallBottomL", new Vector2((-2f + roadL) / 2f, -0.5f), new Vector2(roadL + 2f, 1));
+            MakeWall(bounds, "WallBottomR", new Vector2((roadR + VillageW + 2f) / 2f, -0.5f),
+                     new Vector2(VillageW + 2f - roadR, 1));
+
+            // ---- 交易入口（商店门口 + 摊位旁，两个都开同一个面板）
+            MakeShopKeeper(props, "ShopKeeper_Shop", new Vector2(11f, 11.3f), new Vector2(2.6f, 1.2f),
+                           "杂货铺老板", "村口集市", "种子、农具都在这儿，收货也找我。");
+            MakeShopKeeper(props, "ShopKeeper_Stall", new Vector2(9f, 6.2f), new Vector2(2.0f, 1.0f),
+                           "集市摊主", "集市摊位", "自家种的、刚钓的，我都收。");
+
+            // ---- 回农场
+            MakePortal(props, "RoadToFarm", new Vector2(17f, 0.6f), new Vector2(2.2f, 1.4f),
+                       "回农场", GameData.SceneFarm, GameData.SpawnVillage);
+
+            var spawns = new GameObject("Spawns").transform;
+            // 从农场过来落在这条土路上（面朝上，正对广场）
+            MakeSpawn(spawns, "Spawn_Road", new Vector3(17f, 1.4f, 0f), GameData.SpawnRoad, Vector2.up);
+            // 直接在编辑器里播放本场景时的默认落点（同一个位置）
+            MakeSpawn(spawns, "Spawn_Default", new Vector3(17f, 1.4f, 0f), GameData.SpawnDefault, Vector2.up);
+
+            var player = CreatePlayer(new Vector3(17f, 1.4f, 0f), VillageH);
+
+            var follow = camGO.GetComponent<CameraFollow>();
+            follow.target = player.transform;
+            follow.useBounds = true;
+            follow.min = Vector2.zero;
+            follow.max = new Vector2(VillageW, VillageH);
+            follow.snapOnStart = true;
+            follow.targetOffset = new Vector2(0f, 0.6f);
+            follow.lookAhead = 1.2f;
+            follow.lookAheadSharpness = 4f;
+            follow.smoothTime = 0.15f;
+            follow.pixelGrid = 1f / 128f;
+
+            EditorSceneManager.MarkSceneDirty(scene);
+            EditorSceneManager.SaveScene(scene, ScenesDir + "/" + GameData.SceneVillage + ".scene");
+        }
+
+        /// <summary>
+        /// 摆一个静态村民：与玩家同一套 sprite 与底部对齐规则，但只挂 SpriteRenderer
+        /// （不会走、不会交互 —— 交互由它旁边的 ShopKeeper 负责）。
+        /// </summary>
+        static void PlaceNpc(Transform parent, string name, float x, float groundY,
+                             Color tint, bool flipX, int orderBase)
+        {
+            var sprite = S("V2/Characters/v2_walk_farmer_down_01.png");
+            if (sprite == null)
+            {
+                Debug.LogWarning("[LuminousSSS] 缺少村民素材 v2_walk_farmer_down_01.png");
+                return;
+            }
+
+            var go = new GameObject(name, typeof(SpriteRenderer));
+            go.transform.SetParent(parent, false);
+            var sr = go.GetComponent<SpriteRenderer>();
+            sr.sprite = sprite;
+            sr.color = tint;
+            sr.flipX = flipX;
+
+            float h = sprite.rect.height / sprite.pixelsPerUnit;
+            go.transform.position = new Vector3(x, groundY + h * 0.5f, 0f);
+            sr.sortingOrder = Mathf.RoundToInt((orderBase - groundY) * 10f);
+        }
+
+        /// <summary>
+        /// 摆一个村民摊位/店铺的交互区：isTrigger 碰撞盒 + <see cref="ShopKeeper"/>。
+        /// 和传送点一样只做「走近了能按 E」的检测，不挡路。
+        /// </summary>
+        static GameObject MakeShopKeeper(Transform parent, string name, Vector2 center, Vector2 size,
+                                         string npcName, string shopTitle, string greeting)
+        {
+            var go = new GameObject(name, typeof(BoxCollider2D), typeof(ShopKeeper));
+            go.transform.SetParent(parent, false);
+            go.transform.position = center;
+
+            var box = go.GetComponent<BoxCollider2D>();
+            box.isTrigger = true;
+            box.size = size;
+
+            var keeper = go.GetComponent<ShopKeeper>();
+            keeper.npcName = npcName;
+            keeper.shopTitle = shopTitle;
+            keeper.greeting = greeting;
+            return go;
         }
 
         // ------------------------------------------------------------ 小洋楼室内（v0.14）
@@ -1258,6 +1647,43 @@ namespace LuminousSSS.EditorTools
             actDriver.label = actLabel;
             UnityEventTools.AddVoidPersistentListener(
                 actBtn.onClick, actDriver.OnClickInteract);
+
+            // ---- 金币（左上角，v0.15）：与右下角交互按钮对角，不和摇杆抢地方
+            var coinGO = new GameObject("CoinHud", typeof(RectTransform), typeof(Image), typeof(CoinHud));
+            coinGO.transform.SetParent(root, false);
+            var coinRt = coinGO.GetComponent<RectTransform>();
+            coinRt.anchorMin = coinRt.anchorMax = new Vector2(0f, 1f);   // 锚左上角
+            coinRt.pivot = new Vector2(0f, 1f);
+            coinRt.sizeDelta = new Vector2(300f, 92f);
+            coinRt.anchoredPosition = new Vector2(JoystickInset, -JoystickInset);
+
+            var coinPlate = coinGO.GetComponent<Image>();
+            coinPlate.sprite = S(UiRoot + "v2_ui_currency_plate.png");
+            coinPlate.type = Image.Type.Sliced;
+            coinPlate.pixelsPerUnitMultiplier = UiPpu;
+            coinPlate.raycastTarget = false;
+
+            var coinIcon = CreateCentered<Image>("Icon", coinGO.transform, new Vector2(56f, 56f));
+            coinIcon.sprite = S("V2/Items/v2_item_coin_gold.png");
+            coinIcon.preserveAspect = true;
+            coinIcon.raycastTarget = false;
+            var coinIconRt = coinIcon.rectTransform;
+            coinIconRt.anchorMin = coinIconRt.anchorMax = new Vector2(0f, 0.5f);
+            coinIconRt.pivot = new Vector2(0f, 0.5f);
+            coinIconRt.anchoredPosition = new Vector2(30f, 0f);
+
+            var coinLabelGO = new GameObject("Label", typeof(RectTransform), typeof(Text));
+            coinLabelGO.transform.SetParent(coinGO.transform, false);
+            var coinLabelRt = coinLabelGO.GetComponent<RectTransform>();
+            coinLabelRt.anchorMin = coinLabelRt.anchorMax = new Vector2(0f, 0.5f);
+            coinLabelRt.pivot = new Vector2(0f, 0.5f);
+            coinLabelRt.sizeDelta = new Vector2(206f, 64f);
+            coinLabelRt.anchoredPosition = new Vector2(74f, 0f);
+            var coinLabel = coinLabelGO.GetComponent<Text>();
+            Style(coinLabel, "0", 40, TextAnchor.MiddleLeft, ParchmentTextColor);
+            AddOutline(coinLabel, WoodTextOutline, 1.5f);
+
+            coinGO.GetComponent<CoinHud>().label = coinLabel;
         }
 
         /// <summary>锚点与轴心都取 (0.5,0.5) 的 UI 元素 —— 相对父节点居中。</summary>
@@ -1650,7 +2076,8 @@ namespace LuminousSSS.EditorTools
         {
             var wanted = new[] { ScenesDir + "/LoginScene.scene", ScenesDir + "/FarmScene.scene",
                                  ScenesDir + "/" + GameData.SceneHouse1F + ".scene",
-                                 ScenesDir + "/" + GameData.SceneHouse2F + ".scene" };
+                                 ScenesDir + "/" + GameData.SceneHouse2F + ".scene",
+                                 ScenesDir + "/" + GameData.SceneVillage + ".scene" };
             var list = new List<EditorBuildSettingsScene>();
             foreach (var w in wanted)
                 if (System.IO.File.Exists(w))

@@ -21,6 +21,8 @@ namespace LuminousSSS.EditorTools
         const string FarmScenePath = "Assets/Scenes/FarmScene.scene";
         const string House1FPath = "Assets/Scenes/House1FScene.scene";
         const string House2FPath = "Assets/Scenes/House2FScene.scene";
+        const string VillageScenePath = "Assets/Scenes/VillageScene.scene";
+        const string ItemDbPath = "Assets/Resources/ItemDB.asset";
         const string GrassTilePath = "Assets/Art/V2/Tiles/fill_grass_a.png";
 
         static bool s_tried;
@@ -37,7 +39,9 @@ namespace LuminousSSS.EditorTools
             bool needLogin = !File.Exists(LoginScenePath);
             bool needFarm = !File.Exists(FarmScenePath);
             bool needHouse = !File.Exists(House1FPath) || !File.Exists(House2FPath);
-            if (!needLogin && !needFarm && !needHouse) { s_tried = true; return; }
+            bool needVillage = !File.Exists(VillageScenePath);
+            bool needDb = !File.Exists(ItemDbPath);       // v0.15：商店 / 播种 / 钓鱼都靠这张表
+            if (!needLogin && !needFarm && !needHouse && !needVillage && !needDb) { s_tried = true; return; }
 
             // 等编译 / 资源导入都结束（fill 瓦片已能作为 Texture 加载）再动手，
             // 否则首次打开工程时 AssetDatabase 还没就绪会生成出空场景。
@@ -52,10 +56,17 @@ namespace LuminousSSS.EditorTools
 
             if (needLogin && needFarm)
             {
-                // 两个主场景都没有：一键全建（首启路径，含室内 —— OneClick 走 BuildAll）
-                Debug.Log("[LuminousSSS] 检测到主场景都没生成，自动执行一键生成（登录 + 农场 + 小洋楼）……");
+                // 两个主场景都没有：一键全建（首启路径，含室内与集市 —— OneClick 走 BuildAll）
+                Debug.Log("[LuminousSSS] 检测到主场景都没生成，自动执行一键生成（登录 + 农场 + 小洋楼 + 集市）……");
                 GameSceneBuilder.OneClick();
                 return;
+            }
+
+            // 物品表缺失（老工程升级上来时会碰到）：只补表，不动任何场景
+            if (needDb)
+            {
+                Debug.Log("[LuminousSSS] 检测到物品表缺失，补建 Assets/Resources/ItemDB.asset……");
+                GameSceneBuilder.EnsureItemDatabase();
             }
 
             // 缺哪个补哪个，绝不重建已存在的场景
@@ -75,6 +86,12 @@ namespace LuminousSSS.EditorTools
             {
                 Debug.Log("[LuminousSSS] 检测到小洋楼场景缺失，自动补建 House1FScene / House2FScene……");
                 GameSceneBuilder.BuildHouseScenesOnly();
+            }
+
+            if (needVillage)
+            {
+                Debug.Log("[LuminousSSS] 检测到集市场景缺失，自动补建 VillageScene（其他场景未动）……");
+                GameSceneBuilder.BuildVillageSceneOnly();
             }
         }
     }

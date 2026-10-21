@@ -48,6 +48,9 @@ namespace LuminousSSS
         [Tooltip("树所在的种植格坐标（场景生成器写入；不是世界坐标）")]
         public int cellY;
 
+        [Tooltip("砍倒后在原位生成播种点：耕地不只是背景，可以直接播种")]
+        public bool spawnPlantSpot = true;
+
         /// <summary>是否已砍倒。</summary>
         public bool IsChopped { get; private set; }
 
@@ -69,6 +72,9 @@ namespace LuminousSSS
         private BoxCollider2D _col;
         private float _lastHitTime = -999f;
         private bool _shaking;
+
+        /// <summary>原树的排序基准（(地图高 - y) * 10）。播种点沿用同一个值，遮挡关系与树一致。</summary>
+        private int _baseOrder;
 
         // ------------------------------------------------------------ 已砍记录（静态）
 
@@ -97,6 +103,7 @@ namespace LuminousSSS
             _sr = GetComponentInChildren<SpriteRenderer>();
             _col = GetComponent<BoxCollider2D>();
             HitsLeft = chopHits;
+            if (_sr != null) _baseOrder = _sr.sortingOrder;
 
             // 之前砍过：直接进入砍倒态（不播抖动、不发音，进场景就是现状）
             if (WasChopped(treeId)) Fall(playFeedback: false);
@@ -105,8 +112,12 @@ namespace LuminousSSS
         private void Start()
         {
             // 兜底：Awake 阶段 Tilemap 未必已经启用完，已砍倒的树在这里再铺一次。
-            // PaintFarmland 是幂等的，重复调用只是重设同一个瓦片。
-            if (IsChopped) PaintFarmland();
+            // PaintFarmland / SpawnPlantSpot 都是幂等的（SetTile 重设同值、同名物体直接复用）。
+            if (IsChopped)
+            {
+                PaintFarmland();
+                SpawnPlantSpot();
+            }
         }
 
         /// <summary>是否可以砍（冷却中或已砍倒时不可）。</summary>
@@ -176,6 +187,7 @@ namespace LuminousSSS
             if (_sr != null) _sr.enabled = false;  // 整棵消失（不留树桩，原位换成耕地）
 
             PaintFarmland();
+            SpawnPlantSpot();
 
             if (playFeedback) AudioManager.PlayChop();   // 静态入口，内部自带 Instance 判空
             MarkChopped(treeId);
@@ -197,6 +209,16 @@ namespace LuminousSSS
                        ? tilledTile
                        : tilledTileAlt;
             farmland.SetTile(new Vector3Int(cellX, cellY, 0), pick);
+        }
+
+        /// <summary>
+        /// 在耕地这一格生成播种点：耕地是"能种的地"而不只是变色地面，
+        /// 玩家砍完树就能原地播种（播种 → 生长 → 收获 → 拿去集市卖）。
+        /// </summary>
+        private void SpawnPlantSpot()
+        {
+            if (!spawnPlantSpot) return;
+            PlantSpot.SpawnAt(cellX, cellY, _baseOrder);
         }
 
         private void OnDrawGizmosSelected()
