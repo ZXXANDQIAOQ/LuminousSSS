@@ -36,6 +36,33 @@ namespace LuminousSSS
 
         [Tooltip("生长阶段贴图（幼苗 → 成株），仅用于 Seed：数量决定有几个中间阶段")]
         public Sprite[] growthFrames;
+
+        [Header("种植扩展（v0.17）")]
+        [Tooltip("每生长阶段的真实秒数（0=用 PlantSpot 默认值）")]
+        public float stageSeconds;
+
+        [Tooltip("需水频率（1=每阶段浇一次，2=每两阶段浇一次）")]
+        public int waterNeed = 1;
+
+        [Tooltip("是否可施肥加速")]
+        public bool fertilizable = true;
+
+        [Tooltip("基础收获数量")]
+        public int harvestYield = 1;
+
+        [Tooltip("收获数量随机浮动（土豆 2-3 个填 1）")]
+        public int harvestYieldBonus = 0;
+
+        [Tooltip("金色品质基础概率（0~1）")]
+        public float goldenChance = 0.05f;
+
+        [Header("钓鱼扩展（v0.17）")]
+        [Tooltip("稀有度 1-5 星（仅 Fish 用）")]
+        public int rarity = 1;
+
+        [Tooltip("重量区间(kg)，用于记录最重的鱼")]
+        public float weightMin = 0.2f;
+        public float weightMax = 1f;
     }
 
     /// <summary>

@@ -47,6 +47,9 @@ namespace LuminousSSS
         [Tooltip("HUD 背包按钮上的布袋图标")]
         public Sprite bagIcon;
 
+        [Tooltip("面板标题栏底图")]
+        public Sprite titleBar;
+
         static UiTheme _cached;
 
         public static UiTheme Instance

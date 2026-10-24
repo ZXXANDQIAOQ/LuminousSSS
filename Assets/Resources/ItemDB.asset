@@ -24,6 +24,15 @@ MonoBehaviour:
     - {fileID: 21300000, guid: 6c75fc0a25834eb46ab79061f3fd047e, type: 3}
     - {fileID: 21300000, guid: b0ecc4076fe61ee4bb7ea79a023e483b, type: 3}
     - {fileID: 21300000, guid: c692af0d7ce19f74b94e244a456337c8, type: 3}
+    stageSeconds: 30
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: seed_radish
     displayName: "\u841D\u535C\u79CD\u5B50"
     kind: 0
@@ -35,6 +44,15 @@ MonoBehaviour:
     - {fileID: 21300000, guid: 6c75fc0a25834eb46ab79061f3fd047e, type: 3}
     - {fileID: 21300000, guid: b0ecc4076fe61ee4bb7ea79a023e483b, type: 3}
     - {fileID: 21300000, guid: c692af0d7ce19f74b94e244a456337c8, type: 3}
+    stageSeconds: 35
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: seed_tomato
     displayName: "\u756A\u8304\u79CD\u5B50"
     kind: 0
@@ -46,6 +64,15 @@ MonoBehaviour:
     - {fileID: 21300000, guid: 6c75fc0a25834eb46ab79061f3fd047e, type: 3}
     - {fileID: 21300000, guid: b0ecc4076fe61ee4bb7ea79a023e483b, type: 3}
     - {fileID: 21300000, guid: c692af0d7ce19f74b94e244a456337c8, type: 3}
+    stageSeconds: 40
+    waterNeed: 2
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 1
+    goldenChance: 0.08
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: carrot
     displayName: "\u80E1\u841D\u535C"
     kind: 1
@@ -54,6 +81,15 @@ MonoBehaviour:
     sellPrice: 45
     seedOf: 
     growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: radish
     displayName: "\u841D\u535C"
     kind: 1
@@ -62,6 +98,15 @@ MonoBehaviour:
     sellPrice: 38
     seedOf: 
     growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: tomato
     displayName: "\u756A\u8304"
     kind: 1
@@ -70,6 +115,15 @@ MonoBehaviour:
     sellPrice: 62
     seedOf: 
     growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: fish_blue
     displayName: "\u6CB3\u9C88"
     kind: 2
@@ -78,6 +132,15 @@ MonoBehaviour:
     sellPrice: 55
     seedOf: 
     growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
   - id: fish_gold
     displayName: "\u9526\u9CA4"
     kind: 2
@@ -86,3 +149,80 @@ MonoBehaviour:
     sellPrice: 130
     seedOf: 
     growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 3
+    weightMin: 0.5
+    weightMax: 3
+  - id: iron_ore
+    displayName: "\u94C1\u77FF"
+    kind: 1
+    icon: {fileID: 21300000, guid: b41a58e017552114abd3a4f980430591, type: 3}
+    buyPrice: 30
+    sellPrice: 15
+    seedOf: 
+    growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
+  - id: coal
+    displayName: "\u7164\u70AD"
+    kind: 1
+    icon: {fileID: 21300000, guid: 6f8509b327241aa438d35092ba11b97c, type: 3}
+    buyPrice: 20
+    sellPrice: 10
+    seedOf: 
+    growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
+  - id: forged_sword
+    displayName: "\u953B\u9020\u5251"
+    kind: 1
+    icon: {fileID: 21300000, guid: 7dd64666e618eeb46bafad49c348c6be, type: 3}
+    buyPrice: 0
+    sellPrice: 0
+    seedOf: 
+    growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1
+  - id: fertilizer
+    displayName: "\u80A5\u6599"
+    kind: 1
+    icon: {fileID: 21300000, guid: 44a9a3fcdd0eb9c4f9e29c7963eb88ae, type: 3}
+    buyPrice: 40
+    sellPrice: 0
+    seedOf: 
+    growthFrames: []
+    stageSeconds: 0
+    waterNeed: 1
+    fertilizable: 1
+    harvestYield: 1
+    harvestYieldBonus: 0
+    goldenChance: 0.05
+    rarity: 1
+    weightMin: 0.2
+    weightMax: 1

@@ -119,14 +119,13 @@ namespace LuminousSSS
             StopFishing("鱼跑了…");
         }
 
-        /// <summary>收到鱼：随机挑一种写进背包，然后回到空闲态。</summary>
+        /// <summary>收到鱼：随机挑一种写进背包，记录重量，然后回到空闲态。</summary>
         void Catch()
         {
             string fishId = PickFish();
             StopFishing(null);
             if (string.IsNullOrEmpty(fishId)) return;
 
-            // 背包满了就直接放生，不硬塞（Inventory.Add 会拒绝，这里先说清楚）
             if (!Inventory.CanAdd(fishId, 1))
             {
                 Toast.Show("背包满了，鱼挣脱跑了 —— 去集市卖掉一些");
@@ -135,8 +134,31 @@ namespace LuminousSSS
             }
 
             Inventory.Add(fishId, 1);
-            Toast.Show($"钓到 {ItemDatabase.NameOf(fishId)} ×1");
+
+            // 记录重量（v0.17）
+            float weight = RollWeight(fishId);
+            FishingLog.Record(fishId, weight);
+
+            string rarity = RarityStars(fishId);
+            Toast.Show($"钓到 {rarity}{ItemDatabase.NameOf(fishId)} ×1（{weight:F2}kg）");
             AudioManager.Confirm();
+        }
+
+        /// <summary>按鱼的重量区间随机一个重量。</summary>
+        static float RollWeight(string fishId)
+        {
+            var def = ItemDatabase.Find(fishId);
+            if (def == null) return 0.5f;
+            return Random.Range(def.weightMin, def.weightMax);
+        }
+
+        /// <summary>稀有度星标（★~★★★★★）。</summary>
+        static string RarityStars(string fishId)
+        {
+            var def = ItemDatabase.Find(fishId);
+            if (def == null) return "";
+            int r = Mathf.Clamp(def.rarity, 1, 5);
+            return new string('★', r) + " ";
         }
 
         string PickFish()

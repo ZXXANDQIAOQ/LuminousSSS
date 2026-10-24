@@ -41,6 +41,16 @@ namespace LuminousSSS
             Debug.Log("[Probe] 进入 Play 模式，开始背包系统验证");
             EditorApplication.EnterPlaymode();
         }
+
+        /// <summary>铁匠铺探针入口（v0.17）。</summary>
+        internal static void RunForgeProbe()
+        {
+            Directory.CreateDirectory(Path.Combine(ProjectRoot, "Logs"));
+            UnityEditor.SceneManagement.EditorSceneManager.OpenScene("Assets/Scenes/VillageScene.scene");
+            File.WriteAllText(Path.Combine(ProjectRoot, "Logs/probe_forge.flag"), "run");
+            Debug.Log("[Probe] 进入 Play 模式，开始铁匠铺验证");
+            EditorApplication.EnterPlaymode();
+        }
     }
 }
 #endif

@@ -301,6 +301,9 @@ namespace LuminousSSS.EditorTools
             Sprite tomato = S("V2/Items/v2_item_tomato.png");
             Sprite fishBlue = S("V2/Items/v2_item_fish_blue.png");
             Sprite fishGold = S("V2/Items/v2_item_fish_gold.png");
+            Sprite ironOre = S("V2/Items/v2_item_iron_ore.png");
+            Sprite coal = S("V2/Items/v2_item_coal.png");
+            Sprite forgedSword = S("V2/Items/v2_item_sword.png");
 
             // 三帧幼苗 -> 成株；成熟那一刻换成作物图标（由 PlantSpot 处理）
             var growth = new[]
@@ -316,11 +319,14 @@ namespace LuminousSSS.EditorTools
             db.items = new[]
             {
                 new ItemDef { id = "seed_carrot", displayName = "胡萝卜种子", kind = ItemKind.Seed,
-                              icon = seedCarrot, buyPrice = 20, sellPrice = 0, seedOf = "carrot", growthFrames = growth },
+                              icon = seedCarrot, buyPrice = 20, sellPrice = 0, seedOf = "carrot", growthFrames = growth,
+                              stageSeconds = 30f, waterNeed = 1, fertilizable = true, harvestYield = 1, goldenChance = 0.05f },
                 new ItemDef { id = "seed_radish", displayName = "萝卜种子", kind = ItemKind.Seed,
-                              icon = seedRadish, buyPrice = 25, sellPrice = 0, seedOf = "radish", growthFrames = growth },
+                              icon = seedRadish, buyPrice = 25, sellPrice = 0, seedOf = "radish", growthFrames = growth,
+                              stageSeconds = 35f, waterNeed = 1, fertilizable = true, harvestYield = 1, goldenChance = 0.05f },
                 new ItemDef { id = "seed_tomato", displayName = "番茄种子", kind = ItemKind.Seed,
-                              icon = seedTomato, buyPrice = 30, sellPrice = 0, seedOf = "tomato", growthFrames = growth },
+                              icon = seedTomato, buyPrice = 30, sellPrice = 0, seedOf = "tomato", growthFrames = growth,
+                              stageSeconds = 40f, waterNeed = 2, fertilizable = true, harvestYield = 1, harvestYieldBonus = 1, goldenChance = 0.08f },
 
                 new ItemDef { id = "carrot", displayName = "胡萝卜", kind = ItemKind.Crop,
                               icon = carrot, buyPrice = 0, sellPrice = 45 },
@@ -330,9 +336,23 @@ namespace LuminousSSS.EditorTools
                               icon = tomato, buyPrice = 0, sellPrice = 62 },
 
                 new ItemDef { id = "fish_blue", displayName = "河鲈", kind = ItemKind.Fish,
-                              icon = fishBlue, buyPrice = 0, sellPrice = 55 },
+                              icon = fishBlue, buyPrice = 0, sellPrice = 55,
+                              rarity = 1, weightMin = 0.2f, weightMax = 1f },
                 new ItemDef { id = "fish_gold", displayName = "锦鲤", kind = ItemKind.Fish,
-                              icon = fishGold, buyPrice = 0, sellPrice = 130 },
+                              icon = fishGold, buyPrice = 0, sellPrice = 130,
+                              rarity = 3, weightMin = 0.5f, weightMax = 3f },
+
+                // 铁匠铺材料（v0.17）
+                new ItemDef { id = "iron_ore", displayName = "铁矿", kind = ItemKind.Crop,
+                              icon = ironOre, buyPrice = 30, sellPrice = 15 },
+                new ItemDef { id = "coal", displayName = "煤炭", kind = ItemKind.Crop,
+                              icon = coal, buyPrice = 20, sellPrice = 10 },
+                new ItemDef { id = "forged_sword", displayName = "锻造剑", kind = ItemKind.Crop,
+                              icon = forgedSword, buyPrice = 0, sellPrice = 0 },
+
+                // 种植扩展（v0.17）：肥料
+                new ItemDef { id = "fertilizer", displayName = "肥料", kind = ItemKind.Crop,
+                              icon = S("V2/Items/v2_item_mushroom.png"), buyPrice = 40, sellPrice = 0 },
             };
             EditorUtility.SetDirty(db);
 
@@ -356,11 +376,100 @@ namespace LuminousSSS.EditorTools
             theme.slotSelected = S(UiRoot + "v2_ui_slot_selected.png");
             theme.tooltipPanel = S(UiRoot + "v2_ui_tooltip_panel.png");
             theme.bagIcon = S(UiRoot + "v2_ui_icon_bag.png");   // Tools/gen_ui_bag_icon.py 生成
+            theme.titleBar = S(UiRoot + "v2_ui_title_bar.png");
             EditorUtility.SetDirty(theme);
 
             AssetDatabase.SaveAssets();
             Debug.Log($"[LuminousSSS] 物品表已刷新：{db.items.Length} 件物品"
                       + (dbIsNew ? "（新建）" : "") + "；UI 主题已就绪。");
+
+            // ---- 铁匠铺配置（v0.17）
+            EnsureForgeConfig();
+            EnsureRelicDatabase();
+        }
+
+        /// <summary>生成铁匠铺概率签筒配置（Assets/Resources/ForgeConfig.asset）。</summary>
+        internal static void EnsureForgeConfig()
+        {
+            string path = ResourcesDir + "/ForgeConfig.asset";
+            var cfg = A<ForgeConfig>(path);
+            bool isNew = cfg == null;
+            if (isNew)
+            {
+                cfg = ScriptableObject.CreateInstance<ForgeConfig>();
+                AssetDatabase.CreateAsset(cfg, path);
+            }
+
+            // 5 档权重（总和 100，内部归一化）
+            cfg.breakWeight = 5;
+            cfg.damageWeight = 15;
+            cfg.keepWeight = 30;
+            cfg.successWeight = 40;
+            cfg.critWeight = 10;
+
+            cfg.damageMul = 0.9f;
+            cfg.successMul = 1.2f;
+            cfg.critMul = 1.5f;
+
+            cfg.baseBreakChance = 0.05f;
+            cfg.breakRisePerValue = 0.00002f;
+            cfg.maxBreakChance = 0.35f;
+
+            cfg.frenzyHits = 10;
+            cfg.frenzyGuaranteesSuccess = true;
+
+            cfg.baseSwordValue = 100;
+            cfg.oreItemId = "iron_ore";
+            cfg.oreCost = 1;
+            cfg.coalItemId = "coal";
+            cfg.coalCost = 1;
+
+            EditorUtility.SetDirty(cfg);
+            AssetDatabase.SaveAssets();
+            Debug.Log("[LuminousSSS] 铁匠铺配置已刷新" + (isNew ? "（新建）" : ""));
+        }
+
+        /// <summary>生成遗物表（Assets/Resources/RelicDB.asset）。</summary>
+        internal static void EnsureRelicDatabase()
+        {
+            string path = ResourcesDir + "/RelicDB.asset";
+            var db = A<RelicDatabase>(path);
+            bool isNew = db == null;
+            if (isNew)
+            {
+                db = ScriptableObject.CreateInstance<RelicDatabase>();
+                AssetDatabase.CreateAsset(db, path);
+            }
+
+            // 7 件遗物（参考 ForgeTax 的"遗物售货机"骨架，不复制具体数值/IP）
+            db.relics = new[]
+            {
+                new RelicDef { id = "relic_dragon_scale", displayName = "龙鳞护符",
+                               description = "防一次破碎（消耗型）",
+                               requiredSwordValue = 500, breakReduction = 1f, consumable = true },
+                new RelicDef { id = "relic_rewind", displayName = "悔恨发条",
+                               description = "撤销上一锤（碎了也能救）",
+                               requiredSwordValue = 800, canRewind = true, consumable = true },
+                new RelicDef { id = "relic_red_chalk", displayName = "红粉笔",
+                               description = "下锤大成功概率翻倍",
+                               requiredSwordValue = 600, critChanceMul = 2f },
+                new RelicDef { id = "relic_giant_bone", displayName = "巨人脊骨",
+                               description = "连续3次损伤→下次必大成功",
+                               requiredSwordValue = 1000, damageStreakToCrit = 3 },
+                new RelicDef { id = "relic_scale", displayName = "咬合砝码",
+                               description = "每次损伤积攒强化，大成功一次性爆发",
+                               requiredSwordValue = 900, stackOnDamage = true },
+                new RelicDef { id = "relic_deep_pearl", displayName = "深海之珠",
+                               description = "损伤概率提升（配合巨人脊骨）",
+                               requiredSwordValue = 700, damageChanceMul = 1.5f },
+                new RelicDef { id = "relic_twin_seal", displayName = "双生印",
+                               description = "概率复制成品剑",
+                               requiredSwordValue = 1200, duplicateChance = 0.3f },
+            };
+
+            EditorUtility.SetDirty(db);
+            AssetDatabase.SaveAssets();
+            Debug.Log($"[LuminousSSS] 遗物表已刷新：{db.relics.Length} 件遗物" + (isNew ? "（新建）" : ""));
         }
 
         // ------------------------------------------------------------ Tile 资产
@@ -1264,6 +1373,10 @@ namespace LuminousSSS.EditorTools
             MakeShopKeeper(props, "ShopKeeper_Stall", new Vector2(9f, 6.2f), new Vector2(2.0f, 1.0f),
                            "集市摊主", "集市摊位", "自家种的、刚钓的，我都收。");
 
+            // ---- 铁匠铺（v0.17：全新打铁玩法）
+            MakeBlacksmith(props, "Blacksmith", new Vector2(26.5f, 11.2f), new Vector2(2.8f, 1.2f),
+                           "铁匠老王", "来打把剑？铁矿和煤炭备好，剩下的看运气。");
+
             // ---- 回农场
             MakePortal(props, "RoadToFarm", new Vector2(17f, 0.6f), new Vector2(2.2f, 1.4f),
                        "回农场", GameData.SceneFarm, GameData.SpawnVillage);
@@ -1337,6 +1450,27 @@ namespace LuminousSSS.EditorTools
             keeper.npcName = npcName;
             keeper.shopTitle = shopTitle;
             keeper.greeting = greeting;
+            return go;
+        }
+
+        /// <summary>
+        /// 摆一个铁匠铺交互区：isTrigger 碰撞盒 + <see cref="BlacksmithSpot"/>。
+        /// 与 ShopKeeper 同套路，但开的是锻造面板。
+        /// </summary>
+        static GameObject MakeBlacksmith(Transform parent, string name, Vector2 center, Vector2 size,
+                                         string smithName, string greeting)
+        {
+            var go = new GameObject(name, typeof(BoxCollider2D), typeof(BlacksmithSpot));
+            go.transform.SetParent(parent, false);
+            go.transform.position = center;
+
+            var box = go.GetComponent<BoxCollider2D>();
+            box.isTrigger = true;
+            box.size = size;
+
+            var spot = go.GetComponent<BlacksmithSpot>();
+            spot.smithName = smithName;
+            spot.greeting = greeting;
             return go;
         }
 
