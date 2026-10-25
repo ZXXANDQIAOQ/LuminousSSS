@@ -5583,9 +5583,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c23bc720a04571545bb8d9e5397a5787, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  bobHeight: 0.06
-  bobFrequency: 8
-  bobReturnSpeed: 8
+  bobHeight: 0.12
+  bobFrequency: 6
+  bobReturnSpeed: 10
 --- !u!114 &951523885
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5640,7 +5640,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 86a1e6807d8bc544cb64d74b01086584, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  moveSpeed: 5
+  moveSpeed: 2.8
 --- !u!58 &951523888
 CircleCollider2D:
   m_ObjectHideFlags: 0

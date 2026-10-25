@@ -18,14 +18,17 @@ namespace LuminousSSS
     public class CharacterAnimDriver : MonoBehaviour
     {
         [Header("走路小跳（无动画素材角色的占位表现）")]
-        [Tooltip("小跳幅度，世界单位。V2 素材 64 PPU，0.06 约等于 4 像素")]
-        public float bobHeight = 0.06f;
+        [Tooltip("小跳幅度，世界单位。V2 素材 64 PPU，0.12 约等于 8 像素")]
+        public float bobHeight = 0.12f;
 
         [Tooltip("小跳频率，每秒步数，与行走速度观感匹配")]
-        public float bobFrequency = 8f;
+        public float bobFrequency = 6f;
 
         [Tooltip("停下时回位速度")]
-        public float bobReturnSpeed = 8f;
+        public float bobReturnSpeed = 10f;
+
+        [Tooltip("走路时的水平微摆幅度（身体左右轻晃），0 关闭")]
+        public float swayAmount = 0.03f;
 
         // AnimatorController 里的参数名（与 GameSceneBuilder.EnsureWitchController 一致）
         private const string SpeedParam = "Speed";
@@ -37,6 +40,7 @@ namespace LuminousSSS
         private Animator _anim;
         private Transform _bobTarget;
         private float _bobBaseY;
+        private float _bobBaseX;
         private float _bobPhase;
         private float _bobCurrent;
 
@@ -47,6 +51,7 @@ namespace LuminousSSS
             _anim = GetComponentInChildren<Animator>();
             _bobTarget = _sr != null ? _sr.transform : transform;
             _bobBaseY = _bobTarget.localPosition.y;
+            _bobBaseX = _bobTarget.localPosition.x;
         }
 
         private void Update()
@@ -88,6 +93,8 @@ namespace LuminousSSS
             }
             var pos = _bobTarget.localPosition;
             pos.y = _bobBaseY + _bobCurrent;
+            // 水平微摆：与 bob 同相位，幅度更小，制造「踏步换重心」的感觉
+            pos.x = _bobBaseX + (moving ? Mathf.Sin(_bobPhase) * swayAmount : 0f);
             _bobTarget.localPosition = pos;
         }
 
@@ -100,6 +107,7 @@ namespace LuminousSSS
             _bobCurrent = 0f;
             var pos = _bobTarget.localPosition;
             pos.y = _bobBaseY;
+            pos.x = _bobBaseX;
             _bobTarget.localPosition = pos;
         }
     }

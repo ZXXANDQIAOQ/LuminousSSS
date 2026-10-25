@@ -2098,8 +2098,13 @@ namespace LuminousSSS.EditorTools
             // CharacterAnimDriver 自己会在子物体里找 SpriteRenderer / Animator / PlayerController：
             // 有 controller 的角色走四方向动画；无 controller 的走 flipX + 走路小跳。
             var driver = player.GetComponent<CharacterAnimDriver>();
-            driver.bobHeight = 0.06f;   // 约 4 像素（V2 素材 64 PPU）
-            driver.bobFrequency = 8f;
+            driver.bobHeight = 0.12f;   // 约 8 像素（V2 素材 64 PPU），v0.19 加大：0.06 太小看不出来
+            driver.bobFrequency = 6f;
+            driver.swayAmount = 0.03f;
+
+            // 移速：2.8 格/秒（星露谷同级）。旧值 5 太快像飘（v0.19 修）
+            var pc = player.GetComponent<PlayerController>();
+            pc.moveSpeed = 2.8f;
 
             var pa = player.GetComponent<PlayerAppearance>();
             pa.target = sr;

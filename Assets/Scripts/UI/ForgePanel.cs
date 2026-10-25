@@ -95,7 +95,11 @@ namespace LuminousSSS
             var panelImg = UiFactory.MakePanel(canvas.transform, "Panel",
                 UiTheme.Instance != null ? UiTheme.Instance.panel : null,
                 new Vector2(PanelW, PanelH));
-            _root = panelImg.gameObject;
+
+            // _root 必须绑整个 Canvas（含 Dim 遮罩），不能只绑 Panel ——
+            // 否则 Close() 只隐藏面板，遮罩还留在屏幕上吃掉所有点击，表现为"卡死"。
+            // ShopPanel / BackpackPanel 都是这么绑的（v0.19 修）。
+            _root = canvas.gameObject;
 
             var pt = panelImg.transform;
 

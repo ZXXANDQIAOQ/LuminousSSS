@@ -16,7 +16,7 @@ namespace LuminousSSS
     public static class UiModal
     {
         /// <summary>当前是否有任何模态面板在显示。</summary>
-        public static bool AnyOpen => ShopPanel.IsOpen || BackpackPanel.IsOpen;
+        public static bool AnyOpen => ShopPanel.IsOpen || BackpackPanel.IsOpen || ForgePanel.IsOpen;
 
         /// <summary>按当前模态状态设置 timeScale。打开/关闭面板、以及每帧兜底都调它。</summary>
         public static void Apply()

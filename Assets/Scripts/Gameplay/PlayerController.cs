@@ -12,7 +12,8 @@ namespace LuminousSSS
     public class PlayerController : MonoBehaviour
     {
         [Header("移动")]
-        public float moveSpeed = 5f;
+        [Tooltip("行走速度（格/秒）。星露谷约 2.8，5 太快像飘")]
+        public float moveSpeed = 2.8f;
 
         private Rigidbody2D _rb;
         private Vector2 _input;
