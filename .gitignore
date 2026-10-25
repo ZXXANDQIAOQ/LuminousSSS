@@ -45,6 +45,8 @@ ignore.conf
 
 # ===================== 构建产物 =====================
 *.apk
+# 例外：仓库里的 release/ 目录就是发包目录，APK 要入库（用户要求）
+!release/*.apk
 *.aab
 *.unitypackage
 *.app

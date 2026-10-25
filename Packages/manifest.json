@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "cn.tuanjie.ai.generators": "file:../.codely-cli/extensions/TJGenerators/Packages/cn.tuanjie.ai.generators",
-    "cn.tuanjie.codely.bridge": "1.0.86",
+    "cn.tuanjie.codely.bridge": "1.0.87",
     "cn.unity.uos.launcher": "https://cnb.cool/unity/uos/UOSLauncher.git",
     "com.unity.collab-proxy": "2.12.4",
     "com.unity.device-simulator.devices": "1.0.1",
