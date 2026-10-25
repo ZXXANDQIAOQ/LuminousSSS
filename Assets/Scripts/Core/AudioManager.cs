@@ -24,6 +24,15 @@ namespace LuminousSSS
         public AudioClip confirmClip;
         public AudioClip chopClip;   // 砍树命中（程序化合成，gen_audio.py）
 
+        [Header("打铁音效（ForgeTax 风格）")]
+        public AudioClip hammerClip;    // 锤击铁砧
+        public AudioClip breakClip;     // 剑碎
+        public AudioClip successClip;   // 锤击成功
+        public AudioClip criticalClip;  // 大成功
+        public AudioClip frenzyClip;    // 入神激活
+        public AudioClip heatClip;      // 入炉加热
+        public AudioClip damageClip;    // 锤击损伤
+
         public bool MusicOn { get; private set; }
         public bool SfxOn { get; private set; }
 
@@ -107,6 +116,57 @@ namespace LuminousSSS
             if (Instance == null || !Instance.SfxOn || Instance.sfxSource == null) return;
             var clip = Instance.chopClip != null ? Instance.chopClip : Instance.clickClip;
             if (clip != null) Instance.sfxSource.PlayOneShot(clip);
+        }
+
+        // ---- 打铁音效（ForgeTax 风格）v0.19 ----
+
+        /// <summary>锤击铁砧「铛」。</summary>
+        public static void Hammer()
+        {
+            PlayForge(Instance?.hammerClip);
+        }
+
+        /// <summary>剑碎。</summary>
+        public static void Break()
+        {
+            PlayForge(Instance?.breakClip);
+        }
+
+        /// <summary>锤击成功（上行铃）。</summary>
+        public static void Success()
+        {
+            PlayForge(Instance?.successClip);
+        }
+
+        /// <summary>大成功（琶音爆发）。</summary>
+        public static void Critical()
+        {
+            PlayForge(Instance?.criticalClip);
+        }
+
+        /// <summary>入神激活（上升扫频）。</summary>
+        public static void Frenzy()
+        {
+            PlayForge(Instance?.frenzyClip);
+        }
+
+        /// <summary>入炉加热（火焰呼啸）。</summary>
+        public static void Heat()
+        {
+            PlayForge(Instance?.heatClip);
+        }
+
+        /// <summary>锤击损伤（闷响下行）。</summary>
+        public static void Damage()
+        {
+            PlayForge(Instance?.damageClip);
+        }
+
+        /// <summary>打铁音效统一出口：查开关 + 播放。</summary>
+        static void PlayForge(AudioClip clip)
+        {
+            if (Instance == null || !Instance.SfxOn || Instance.sfxSource == null || clip == null) return;
+            Instance.sfxSource.PlayOneShot(clip);
         }
     }
 }

@@ -836,6 +836,14 @@ namespace LuminousSSS.EditorTools
             am.clickClip = A<AudioClip>(AudioDir + "sfx_click.wav");
             am.confirmClip = A<AudioClip>(AudioDir + "sfx_confirm.wav");
             am.chopClip = A<AudioClip>(AudioDir + "sfx_chop.wav");   // 砍树命中（缺失时 PlayChop 退回 click）
+            // 打铁音效（ForgeTax 风格，v0.19）
+            am.hammerClip   = A<AudioClip>(AudioDir + "sfx_hammer.wav");
+            am.breakClip    = A<AudioClip>(AudioDir + "sfx_break.wav");
+            am.successClip  = A<AudioClip>(AudioDir + "sfx_success.wav");
+            am.criticalClip = A<AudioClip>(AudioDir + "sfx_critical.wav");
+            am.frenzyClip   = A<AudioClip>(AudioDir + "sfx_frenzy.wav");
+            am.heatClip     = A<AudioClip>(AudioDir + "sfx_heat.wav");
+            am.damageClip   = A<AudioClip>(AudioDir + "sfx_damage.wav");
             return am;
         }
 

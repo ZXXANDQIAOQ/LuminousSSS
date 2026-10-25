@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -247,6 +248,9 @@ namespace LuminousSSS
             scroll.content = _relicContent;
             scroll.horizontal = false;
             scroll.vertical = true;
+
+            // ---- 视觉特效（v0.19）：内嵌实现
+            InitFx();
         }
 
         // ------------------------------------------------------------ 状态机驱动
@@ -255,11 +259,29 @@ namespace LuminousSSS
         {
             _session = new ForgeSession();
             _session.OnStrike += OnStrikeResult;
-            _session.OnBroken += () => { _statusText.text = "剑碎了！价值归零..."; Refresh(); };
-            _session.OnDone += v => { _statusText.text = $"收剑成功！价值 {v}"; Refresh(); };
-            _session.OnFrenzy += msg => { _statusText.text = msg; };
+            _session.OnBroken += () =>
+            {
+                _statusText.text = "剑碎了！价值归零...";
+                StrikeFx(FxKind.Break, 16);
+                AudioManager.Break();
+                Refresh();
+            };
+            _session.OnDone += v =>
+            {
+                _statusText.text = $"收剑成功！价值 {v}";
+                PunchValue(true); StrikeFx(FxKind.Success, 8);
+                AudioManager.Success();
+                Refresh();
+            };
+            _session.OnFrenzy += msg =>
+            {
+                _statusText.text = msg;
+                Flash(new Color(0.35f, 0.75f, 1f, 0.55f)); SetFrenzyPulse(true);
+                AudioManager.Frenzy();
+            };
 
             _statusText.text = "点「入炉」开始锻造";
+            SetFrenzyPulse(false);
             Refresh();
             RefreshRelics();   // v0.18 修：此前从未调用，遗物列表一直是空的
         }
@@ -295,6 +317,7 @@ namespace LuminousSSS
             _session.StartForge();
             _session.FinishHeating();   // 简化：跳过加热等待，直接可锤
             _statusText.text = "锤击开始！见好就收还是再敲一锤？";
+            AudioManager.Heat();   // v0.19：入炉火焰音效
             Refresh();
         }
 
@@ -349,6 +372,35 @@ namespace LuminousSSS
                 _ => ""
             };
             _statusText.text = msg;
+
+            // v0.19：按锤击结果播放特效 + 音效（ForgeTax 风格反馈）
+            // 按锤击结果播放特效 + 音效
+            {
+                switch (result)
+                {
+                    case ForgeResult.Damage:
+                        StrikeFx(FxKind.Damage);
+                        PunchValue(false);
+                        AudioManager.Damage();
+                        break;
+                    case ForgeResult.Keep:
+                        Shake(8f);
+                        Sparks(new Color(1f, 0.85f, 0.5f), 6, 180f);
+                        AudioManager.Hammer();
+                        break;
+                    case ForgeResult.Success:
+                        StrikeFx(FxKind.Success);
+                        PunchValue(true);
+                        AudioManager.Success();
+                        break;
+                    case ForgeResult.Critical:
+                        StrikeFx(FxKind.Critical, 16);
+                        PunchValue(true);
+                        AudioManager.Critical();
+                        break;
+                    // Break 由 OnBroken 处理
+                }
+            }
             Refresh();
         }
 
@@ -434,6 +486,169 @@ namespace LuminousSSS
             Toast.Show($"获得遗物：{relic.displayName}");
             _statusText.text = $"已获得遗物：{relic.displayName}";
             Refresh();
+        }
+
+        // ================================================================
+        // 视觉特效（ForgeTax 风格）v0.19
+        // 全部内嵌为 ForgePanel 私有成员，不另建 .cs（绕开 Unity 资产导入问题）。
+        // 用 UGUI（RectTransform + Image + Coroutine），不依赖 ParticleSystem。
+        // ================================================================
+
+        Image _flashImg;             // 全屏闪烁层
+        RectTransform _panelRt;      // 面板根（震动目标）
+        Vector2 _panelBasePos;
+        Coroutine _shakeCo, _flashCo, _punchCo, _frenzyCo;
+
+        /// <summary>Build() 末尾调用，创建闪烁层并缓存震动目标。</summary>
+        void InitFx()
+        {
+            _panelRt = _root.GetComponent<RectTransform>();
+            _panelBasePos = _panelRt.anchoredPosition;
+
+            // 全屏闪烁层：放在 Canvas 上、Panel 之前
+            var canvasRt = _root.transform.parent;
+            var flashGO = new GameObject("Flash", typeof(RectTransform), typeof(Image));
+            flashGO.transform.SetParent(canvasRt, false);
+            flashGO.transform.SetSiblingIndex(0);
+            _flashImg = flashGO.GetComponent<Image>();
+            _flashImg.raycastTarget = false;
+            _flashImg.color = Color.clear;
+            var rt = flashGO.GetComponent<RectTransform>();
+            rt.anchorMin = Vector2.zero; rt.anchorMax = Vector2.one;
+            rt.offsetMin = Vector2.zero; rt.offsetMax = Vector2.zero;
+        }
+
+        // ---- 屏幕震动 ----
+        void Shake(float strength = 10f)
+        {
+            if (_shakeCo != null) StopCoroutine(_shakeCo);
+            _shakeCo = StartCoroutine(ShakeRoutine(strength));
+        }
+        IEnumerator ShakeRoutine(float strength)
+        {
+            float elapsed = 0f, dur = 0.28f;
+            while (elapsed < dur)
+            {
+                elapsed += Time.unscaledDeltaTime;
+                float decay = 1f - elapsed / dur;
+                float offset = strength * decay;
+                _panelRt.anchoredPosition = _panelBasePos + new Vector2(
+                    Random.Range(-offset, offset), Random.Range(-offset, offset));
+                yield return null;
+            }
+            _panelRt.anchoredPosition = _panelBasePos;
+        }
+
+        // ---- 色彩闪烁 ----
+        void Flash(Color c)
+        {
+            if (_flashCo != null) StopCoroutine(_flashCo);
+            _flashCo = StartCoroutine(FlashRoutine(c));
+        }
+        IEnumerator FlashRoutine(Color c)
+        {
+            float t = 0f, fadeIn = 0.05f, hold = 0.12f, fadeOut = 0.25f;
+            while (t < fadeIn) { t += Time.unscaledDeltaTime; _flashImg.color = new Color(c.r, c.g, c.b, c.a * (t / fadeIn)); yield return null; }
+            yield return new WaitForSecondsRealtime(hold);
+            t = 0f;
+            while (t < fadeOut) { t += Time.unscaledDeltaTime; _flashImg.color = new Color(c.r, c.g, c.b, c.a * (1f - t / fadeOut)); yield return null; }
+            _flashImg.color = Color.clear;
+        }
+
+        // ---- 火花粒子 ----
+        void Sparks(Color color, int count = 10, float speed = 220f)
+        {
+            var canvasRt = _root.transform.parent;
+            if (canvasRt == null) return;
+            for (int i = 0; i < count; i++)
+            {
+                var spark = new GameObject("Spark", typeof(RectTransform), typeof(Image));
+                spark.transform.SetParent(canvasRt, false);
+                var img = spark.GetComponent<Image>();
+                img.color = color; img.raycastTarget = false;
+                var rt = spark.GetComponent<RectTransform>();
+                rt.sizeDelta = new Vector2(Random.Range(4f, 10f), Random.Range(4f, 10f));
+                rt.anchoredPosition = _panelBasePos + new Vector2(Random.Range(-40f, 40f), Random.Range(-20f, 20f));
+                StartCoroutine(SparkRoutine(rt, img, Random.insideUnitCircle.normalized * speed * Random.Range(0.5f, 1.3f)));
+            }
+        }
+        IEnumerator SparkRoutine(RectTransform rt, Image img, Vector2 vel)
+        {
+            float t = 0f, dur = Random.Range(0.25f, 0.5f);
+            Color c = img.color; Vector2 pos = rt.anchoredPosition;
+            while (t < dur)
+            {
+                t += Time.unscaledDeltaTime;
+                img.color = new Color(c.r, c.g, c.b, c.a * (1f - t / dur));
+                vel += Vector2.down * 500f * Time.unscaledDeltaTime;
+                pos += vel * Time.unscaledDeltaTime;
+                rt.anchoredPosition = pos;
+                yield return null;
+            }
+            Destroy(rt.gameObject);
+        }
+
+        // ---- 数值弹跳 ----
+        void PunchValue(bool up)
+        {
+            if (_valueText == null) return;
+            if (_punchCo != null) StopCoroutine(_punchCo);
+            _punchCo = StartCoroutine(PunchRoutine(up));
+        }
+        IEnumerator PunchRoutine(bool up)
+        {
+            float t = 0f, dur = 0.30f, peak = up ? 1.35f : 0.75f;
+            while (t < dur)
+            {
+                t += Time.unscaledDeltaTime;
+                float scale = Mathf.Lerp(1f, peak, Mathf.Sin((t / dur) * Mathf.PI));
+                _valueText.transform.localScale = Vector3.one * scale;
+                yield return null;
+            }
+            _valueText.transform.localScale = Vector3.one;
+        }
+
+        // ---- 入神脉冲 ----
+        void SetFrenzyPulse(bool active)
+        {
+            if (active) { if (_frenzyCo == null) _frenzyCo = StartCoroutine(FrenzyPulseRoutine()); }
+            else { if (_frenzyCo != null) { StopCoroutine(_frenzyCo); _frenzyCo = null; } if (_frenzyBar != null) _frenzyBar.transform.localScale = Vector3.one; }
+        }
+        IEnumerator FrenzyPulseRoutine()
+        {
+            while (true)
+            {
+                float p = Mathf.PingPong(Time.unscaledTime * 2.5f, 1f);
+                if (_frenzyBar != null) _frenzyBar.transform.localScale = new Vector3(1f, 1f + p * 0.12f, 1f);
+                yield return null;
+            }
+        }
+
+        // ---- 组合反馈 ----
+        enum FxKind { Damage, Break, Success, Critical, Frenzy }
+        void StrikeFx(FxKind kind, int sparkCount = 10)
+        {
+            Shake(kind == FxKind.Break ? 16f : 10f);
+            Color c = kind switch
+            {
+                FxKind.Damage   => new Color(0.9f, 0.25f, 0.15f, 0.45f),
+                FxKind.Break    => new Color(1f, 0.15f, 0.1f, 0.7f),
+                FxKind.Success  => new Color(1f, 0.85f, 0.25f, 0.5f),
+                FxKind.Critical => new Color(0.85f, 0.45f, 1f, 0.6f),
+                FxKind.Frenzy   => new Color(0.35f, 0.75f, 1f, 0.55f),
+                _ => Color.white
+            };
+            Flash(c);
+            Color sparkColor = kind switch
+            {
+                FxKind.Break    => new Color(1f, 0.35f, 0.15f),
+                FxKind.Damage   => new Color(1f, 0.55f, 0.25f),
+                FxKind.Success  => new Color(1f, 0.9f, 0.35f),
+                FxKind.Critical => new Color(0.9f, 0.55f, 1f),
+                FxKind.Frenzy   => new Color(0.45f, 0.85f, 1f),
+                _ => Color.white
+            };
+            Sparks(sparkColor, sparkCount);
         }
     }
 }

@@ -157,10 +157,138 @@ def gen_chop():
     write_wav(os.path.join(OUT, "sfx_chop.wav"), samples)
 
 
+# ============================================================
+# 打铁音效（ForgeTax 风格）v0.19
+# ============================================================
+
+def gen_hammer():
+    """锤击铁砧：金属「铛」——瞬态冲击 + 金属泛音环。总长 0.25s。"""
+    dur = 0.25
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261025)
+    for i in range(len(samples)):
+        t = i / SR
+        if t < 0.008:
+            samples[i] += 0.8 * rnd.uniform(-1, 1) * math.exp(-t / 0.003)
+            samples[i] += 0.6 * math.sin(2 * math.pi * 220 * t) * math.exp(-t / 0.006)
+        for f, g, decay in [(1200, 0.35, 0.08), (2400, 0.22, 0.05), (3600, 0.12, 0.035), (5200, 0.06, 0.02)]:
+            samples[i] += g * math.sin(2 * math.pi * f * t) * math.exp(-t / decay)
+    write_wav(os.path.join(OUT, "sfx_hammer.wav"), samples)
+
+
+def gen_break():
+    """剑碎：噪声爆发 + 下行滑音 + 碎片散落。总长 0.6s。"""
+    dur = 0.6
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261025)
+    for i in range(len(samples)):
+        t = i / SR
+        if t < 0.05:
+            env = math.exp(-t / 0.015)
+            samples[i] += 1.0 * env * rnd.uniform(-1, 1)
+            for f in (1800, 2700, 4100):
+                samples[i] += 0.3 * env * math.sin(2 * math.pi * f * t)
+        if 0.04 < t < 0.25:
+            tt = t - 0.04
+            f = 400 - 320 * (tt / 0.21)
+            samples[i] += math.exp(-tt / 0.08) * 0.7 * math.sin(2 * math.pi * f * t)
+        if 0.15 < t < 0.55 and rnd.random() < 0.03:
+            samples[i] += 0.25 * rnd.uniform(-1, 1)
+    write_wav(os.path.join(OUT, "sfx_break.wav"), samples)
+
+
+def gen_success():
+    """锤击成功：上行双音铃（E5→A5）+ 亮泛音。总长 0.45s。"""
+    dur = 0.45
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261025)
+    for i in range(len(samples)):
+        t = i / SR
+        if t < 0.008:
+            samples[i] += 0.5 * rnd.uniform(-1, 1) * math.exp(-t / 0.003)
+    note(samples, 0.02, 0.20, 76, 0.45, decay=0.10)
+    note(samples, 0.10, 0.30, 81, 0.50, decay=0.18)
+    note(samples, 0.10, 0.25, 93, 0.15, decay=0.12)
+    write_wav(os.path.join(OUT, "sfx_success.wav"), samples)
+
+
+def gen_critical():
+    """大成功：锤击 + 低频垫 + 上行琶音 E5→A5→C#6→E6。总长 0.7s。"""
+    dur = 0.7
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261025)
+    for i in range(len(samples)):
+        t = i / SR
+        if t < 0.010:
+            samples[i] += 0.8 * rnd.uniform(-1, 1) * math.exp(-t / 0.004)
+        if t < 0.15:
+            samples[i] += 0.35 * math.sin(2 * math.pi * 80 * t) * math.exp(-t / 0.08)
+    note(samples, 0.03, 0.18, 76, 0.45, decay=0.10)
+    note(samples, 0.10, 0.22, 81, 0.50, decay=0.14)
+    note(samples, 0.18, 0.25, 85, 0.50, decay=0.16)
+    note(samples, 0.26, 0.40, 88, 0.55, decay=0.22)
+    write_wav(os.path.join(OUT, "sfx_critical.wav"), samples)
+
+
+def gen_frenzy():
+    """入神激活：上升扫频 100→800Hz + 确认铃。总长 0.5s。"""
+    dur = 0.5
+    samples = [0.0] * int(dur * SR)
+    for i in range(len(samples)):
+        t = i / SR
+        f = 100 + 700 * (t / dur) ** 1.5
+        env = min(1.0, t / 0.05) * math.exp(-max(0, t - 0.3) / 0.15)
+        samples[i] += 0.55 * env * math.sin(2 * math.pi * f * t)
+        samples[i] += 0.20 * env * math.sin(2 * math.pi * f * 1.5 * t)
+    note(samples, 0.32, 0.18, 81, 0.35, decay=0.12)
+    note(samples, 0.36, 0.14, 88, 0.25, decay=0.10)
+    write_wav(os.path.join(OUT, "sfx_frenzy.wav"), samples)
+
+
+def gen_heat():
+    """入炉加热：火焰呼啸（低通滤噪 + 低频轰）。总长 0.4s。"""
+    dur = 0.4
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261025)
+    prev = 0.0
+    for i in range(len(samples)):
+        t = i / SR
+        env = min(1.0, t / 0.06) * math.exp(-max(0, t - 0.15) / 0.18)
+        white = rnd.uniform(-1, 1)
+        prev = 0.70 * prev + 0.30 * white
+        samples[i] += 0.6 * env * prev
+        if t < 0.12:
+            samples[i] += 0.30 * math.sin(2 * math.pi * 60 * t) * math.exp(-t / 0.06)
+    write_wav(os.path.join(OUT, "sfx_heat.wav"), samples)
+
+
+def gen_damage():
+    """锤击损伤：闷响 + 200→100Hz 下行短滑音。总长 0.22s。"""
+    dur = 0.22
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261025)
+    for i in range(len(samples)):
+        t = i / SR
+        if t < 0.008:
+            samples[i] += 0.7 * rnd.uniform(-1, 1) * math.exp(-t / 0.003)
+        samples[i] += 0.5 * math.sin(2 * math.pi * 160 * t) * math.exp(-t / 0.035)
+        if t < 0.15:
+            f = 200 - 100 * (t / 0.15)
+            samples[i] += 0.35 * math.sin(2 * math.pi * f * t) * math.exp(-t / 0.06)
+    write_wav(os.path.join(OUT, "sfx_damage.wav"), samples)
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     gen_bgm()
     gen_click()
     gen_confirm()
     gen_chop()
-    print("音频生成完成。")
+    gen_hammer()
+    gen_break()
+    gen_success()
+    gen_critical()
+    gen_frenzy()
+    gen_heat()
+    gen_damage()
+    print("音频生成完成（含打铁 7 音效）。")
