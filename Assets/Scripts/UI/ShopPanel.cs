@@ -252,21 +252,33 @@ namespace LuminousSSS
             if (scroll != null) scroll.verticalNormalizedPosition = 1f;
         }
 
-        /// <summary>购买页：物品表里所有带 buyPrice 的种子。</summary>
+        /// <summary>购买页：物品表里所有带 buyPrice 的物品（种子 + 铁矿/煤炭/肥料等材料）。</summary>
         void BuildBuyRows()
         {
-            var seeds = ItemDatabase.Purchasable(ItemKind.Seed);
-            if (seeds.Count == 0)
+            // 用 PurchasableAll 而不是 Purchasable(Seed)：铁矿/煤炭是 Crop 类，
+            // 只按 Seed 过滤会把打铁材料从商店里弄丢，打铁玩法直接开不了工（v0.18 修）。
+            var goods = ItemDatabase.PurchasableAll();
+            if (goods.Count == 0)
             {
-                AddEmptyRow("物品表里还没有可出售的种子（检查 ItemDB）");
+                AddEmptyRow("物品表里还没有可购买的物品（检查 ItemDB）");
                 return;
             }
 
-            foreach (var def in seeds)
+            // 种子排前面（主玩法先看到），材料排后面
+            goods.Sort((a, b) =>
+            {
+                int ka = a.kind == ItemKind.Seed ? 0 : 1;
+                int kb = b.kind == ItemKind.Seed ? 0 : 1;
+                return ka != kb ? ka.CompareTo(kb) : string.CompareOrdinal(a.id, b.id);
+            });
+
+            foreach (var def in goods)
             {
                 var d = def;   // 闭包捕获：foreach 变量在 C# 5 之后是每轮独立，这里显式拷贝更保险
                 int have = Inventory.Count(d.id);
-                string sub = $"{d.buyPrice} 金币 / 包   ·   已有 {have} 包   ·   成熟后卖 {ItemDatabase.Find(d.seedOf)?.sellPrice ?? 0} 金币";
+                string sub = d.kind == ItemKind.Seed
+                    ? $"{d.buyPrice} 金币 / 包   ·   已有 {have} 包   ·   成熟后卖 {ItemDatabase.Find(d.seedOf)?.sellPrice ?? 0} 金币"
+                    : $"{d.buyPrice} 金币 / 个   ·   已有 {have} 个" + (d.sellPrice > 0 ? $"   ·   回收价 {d.sellPrice}" : "");
 
                 AddRow(d, sub, new[]
                 {

@@ -28,8 +28,8 @@ namespace LuminousSSS
         [Tooltip("咬钩前的最长等待（秒）")]
         public float maxWait = 3.8f;
 
-        [Tooltip("咬钩窗口（秒）。这段时间内再交互一次才能上鱼，超时鱼跑")]
-        public float biteWindow = 1.4f;
+        [Tooltip("咬钩窗口（秒）。这段时间内再交互一次才能上鱼，超时鱼跑。手机上要点按钮，给足反应时间")]
+        public float biteWindow = 3.0f;
 
         [Header("产出")]
         [Tooltip("可能钓到的鱼 id，重复写就是提高权重。蓝鱼 2 : 金鱼 1")]
@@ -56,14 +56,19 @@ namespace LuminousSSS
                 {
                     case State.Casting: return "抛竿中";
                     case State.Waiting: return "收竿";
-                    case State.Biting: return "收杆！";
+                    case State.Biting: return "收竿！";
                     default: return "钓鱼";
                 }
             }
         }
 
-        /// <summary>抛竿动画那半秒不给交互，其余状态都可（等待=放弃，咬钩=上鱼）。</summary>
-        public bool CanInteract => _state != State.Casting;
+        /// <summary>
+        /// 只有「还没抛竿」和「咬钩中」可交互。等待期是灰的 ——
+        /// 此前等待期 Prompt 是「收竿」且可点，手机上按钮大、连点常见，
+        /// 玩家以为在确认钓鱼，一点就空竿放弃（v0.18 修：真机反馈「钓鱼交互有问题」）。
+        /// 等待最长 3.8 秒，不能放弃也无所谓。
+        /// </summary>
+        public bool CanInteract => _state == State.Idle || _state == State.Biting;
 
         public void Interact(PlayerInteractor who)
         {
@@ -73,13 +78,10 @@ namespace LuminousSSS
                     _routine = StartCoroutine(FishRoutine());
                     break;
 
-                case State.Waiting:
-                    StopFishing("空竿… 下次看准浮标");
-                    break;
-
                 case State.Biting:
                     Catch();
                     break;
+                // Waiting 状态不再响应 —— 见 CanInteract 注释
             }
         }
 

@@ -257,6 +257,7 @@ namespace LuminousSSS
 
             _statusText.text = "点「入炉」开始锻造";
             Refresh();
+            RefreshRelics();   // v0.18 修：此前从未调用，遗物列表一直是空的
         }
 
         void Update()
@@ -314,9 +315,11 @@ namespace LuminousSSS
             }
             else
             {
-                // 背包满：直接换金币
+                // 背包满：直接换金币。注意金币是 Inventory.Gold（独立数值），
+                // 不是背包物品 —— 之前写 Add("gold_coin") 会塞进一个物品表里
+                // 不存在的幽灵物品，钱一分没拿到（v0.18 修）。
                 int gold = Mathf.RoundToInt(value * 0.6f);
-                Inventory.Add("gold_coin", gold);
+                Inventory.AddGold(gold);
                 Toast.Show($"背包已满，剑已折算 {gold} 金币");
             }
 

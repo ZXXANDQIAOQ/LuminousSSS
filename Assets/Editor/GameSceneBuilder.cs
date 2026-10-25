@@ -1106,12 +1106,14 @@ namespace LuminousSSS.EditorTools
             // ---- 物件（collider 给出底部碰撞盒的宽 x 高；无则纯装饰）
             var props = new GameObject("Props").transform;
 
-            // 红顶木屋（右上，底部中心即门口，对准土路顶端）
-            PlaceProp(props, "V2/Buildings/v2_building_house_main.png", HouseDoorX, 14f, new Vector2(7.6f, 1.6f));
+            // 红顶木屋（右上，底部中心即门口，对准土路顶端）。
+            // 碰撞盒 = 整图 8.1×9.6（v0.18）：此前只挡底部 1.6 格，玩家能绕进屋身被图盖住。
+            // 门口 trigger（DoorToHouse）在碰撞盒南侧外，进屋不受影响。
+            PlaceProp(props, "V2/Buildings/v2_building_house_main.png", HouseDoorX, 14f, new Vector2(8.1f, 9.6f));
 
-            // 木屋旁：木箱 + 木桶
-            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 24.4f, 14.5f, new Vector2(1.1f, 1.0f));
-            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 25.3f, 13.2f, new Vector2(1.1f, 1.0f));
+            // 木屋旁：木箱 + 木桶（碰撞盒对齐素材实际尺寸 1.6×1.8 / 1.5×1.9）
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 24.4f, 14.5f, new Vector2(1.6f, 1.8f));
+            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 25.3f, 13.2f, new Vector2(1.5f, 1.9f));
 
             // 顶部石墙前的灌木带
             foreach (float bx in new[] { 4f, 8f, 12f, 16f, 20f, 24f, 36f })
@@ -1119,7 +1121,7 @@ namespace LuminousSSS.EditorTools
 
             // 左侧：阔叶树 / 石头 / 树桩
             foreach (var p in new[] { (2.0f, 6.0f), (2.4f, 10.5f), (3.0f, 15.5f), (1.8f, 19.2f) })
-                PlaceProp(props, "V2/Nature/v2_nature_tree_broadleaf.png", p.Item1, p.Item2, new Vector2(1.0f, 0.8f));
+                PlaceProp(props, "V2/Nature/v2_nature_tree_broadleaf.png", p.Item1, p.Item2, new Vector2(1.1f, 1.8f));
             PlaceProp(props, "V2/Nature/v2_nature_rock.png", 3.6f, 8.4f, new Vector2(1.5f, 0.9f));
             PlaceProp(props, "V2/Nature/v2_nature_rock.png", 3.0f, 12.8f, new Vector2(1.5f, 0.9f));
             PlaceProp(props, "V2/Nature/v2_nature_stump.png", 5.0f, 10.0f, new Vector2(1.5f, 0.8f));
@@ -1127,7 +1129,7 @@ namespace LuminousSSS.EditorTools
 
             // 右侧：松树（v0.15 起右下角是池塘，原本 (37.2, 5.0) 那棵挪到池塘北岸外）
             foreach (var p in new[] { (37.3f, 12.2f), (37.8f, 11.0f), (37.2f, 17.5f) })
-                PlaceProp(props, "V2/Nature/v2_nature_tree_pine.png", p.Item1, p.Item2, new Vector2(0.9f, 0.7f));
+                PlaceProp(props, "V2/Nature/v2_nature_tree_pine.png", p.Item1, p.Item2, new Vector2(1.0f, 1.8f));
 
             // ---- v0.15 池塘（右侧）：整张 10x6 格的水面图，底部对齐 groundY=1.6
             // orderOverride = -95：池塘是"地面"，不能参与 Y 排序 ——
@@ -1304,40 +1306,46 @@ namespace LuminousSSS.EditorTools
             // ---- 物件
             var props = new GameObject("Props").transform;
 
-            // 北侧一排建筑。groundY 是各自「门口地面」的高度，碰撞盒只挡住底部一条（进不去屋里）
-            PlaceProp(props, "V2/Buildings/v2_building_workshop.png", 5.2f, 13.2f, new Vector2(3.2f, 1.2f));
-            PlaceProp(props, "V2/Buildings/v2_building_shop_striped.png", 11f, 12.6f, new Vector2(3.2f, 1.3f));
-            PlaceProp(props, "V2/Buildings/v2_building_house_red_a.png", 20f, 13.0f, new Vector2(3.0f, 1.2f));
-            PlaceProp(props, "V2/Buildings/v2_building_house_red_b.png", 26.5f, 12.4f, new Vector2(2.8f, 1.2f));
-            PlaceProp(props, "V2/Buildings/v2_building_barn_red.png", 31.4f, 13.0f, new Vector2(4.4f, 1.4f));
+            // 北侧一排建筑。碰撞盒 = 整张建筑图的外接矩形（v0.18）——
+            // 此前只挡底部 1.2 格，玩家能从北边绕进房子图像里，被图盖住看着像穿模。
+            // 现在整图实心，玩家绕房走；房子之间间距 ≥3 格，不会堵死路。
+            // 图宽×图高（PPU 64 折算）：workshop 3.3×3.5 / shop 3.4×3.5 /
+            // house_a 3.3×3.2 / house_b 3.0×3.3 / barn 4.7×3.9。
+            PlaceProp(props, "V2/Buildings/v2_building_workshop.png", 5.2f, 13.2f, new Vector2(3.3f, 3.5f));
+            PlaceProp(props, "V2/Buildings/v2_building_shop_striped.png", 11f, 12.6f, new Vector2(3.4f, 3.5f));
+            PlaceProp(props, "V2/Buildings/v2_building_house_red_a.png", 20f, 13.0f, new Vector2(3.3f, 3.2f));
+            PlaceProp(props, "V2/Buildings/v2_building_house_red_b.png", 26.5f, 12.4f, new Vector2(3.0f, 3.3f));
+            PlaceProp(props, "V2/Buildings/v2_building_barn_red.png", 31.4f, 13.0f, new Vector2(4.7f, 3.9f));
 
-            // 店铺门口的木箱木桶（摊位气质）
-            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 13.2f, 12.1f, new Vector2(1.1f, 1.0f));
-            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 8.3f, 12.3f, new Vector2(1.1f, 1.0f));
-            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 23.2f, 12.2f, new Vector2(1.1f, 1.0f));
+            // 店铺门口的木箱木桶（碰撞盒对齐素材 1.6×1.8 / 1.5×1.9，v0.18 修穿模）
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 13.2f, 12.1f, new Vector2(1.6f, 1.8f));
+            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 8.3f, 12.3f, new Vector2(1.5f, 1.9f));
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 23.2f, 12.2f, new Vector2(1.6f, 1.8f));
 
-            // ---- 广场中央：水井 + 两个摊位
-            PlaceProp(props, "V2/Village/v2_build_well.png", 17f, 8.2f, new Vector2(1.4f, 0.9f));
-            PlaceProp(props, "V2/Village/v2_build_stall.png", 9f, 7.5f, new Vector2(1.8f, 0.9f));
-            PlaceProp(props, "V2/Village/v2_build_stall.png", 24f, 7.5f, new Vector2(1.8f, 0.9f));
+            // ---- 广场中央：水井 + 两个摊位（碰撞盒 = 素材实际尺寸，防玩家走进图里）
+            PlaceProp(props, "V2/Village/v2_build_well.png", 17f, 8.2f, new Vector2(1.5f, 1.5f));
+            PlaceProp(props, "V2/Village/v2_build_stall.png", 9f, 7.5f, new Vector2(2.0f, 2.0f));
+            PlaceProp(props, "V2/Village/v2_build_stall.png", 24f, 7.5f, new Vector2(2.0f, 2.0f));
 
-            // 路灯：广场两侧对称，给「有人居住」的暖光点
-            PlaceProp(props, "V2/Village/v2_build_lamp.png", 13.4f, 9.6f, new Vector2(0.4f, 0.4f));
-            PlaceProp(props, "V2/Village/v2_build_lamp.png", 20.6f, 9.6f, new Vector2(0.4f, 0.4f));
+            // 路灯：广场两侧对称，给「有人居住」的暖光点（挡灯柱下半即可，灯头细）
+            PlaceProp(props, "V2/Village/v2_build_lamp.png", 13.4f, 9.6f, new Vector2(0.5f, 1.2f));
+            PlaceProp(props, "V2/Village/v2_build_lamp.png", 20.6f, 9.6f, new Vector2(0.5f, 1.2f));
 
             // 广场补装饰：货箱堆 + 集市木牌（否则中央一大片空地显得空）
-            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 25.6f, 11.4f, new Vector2(1.1f, 1.0f));
-            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 14.4f, 11.6f, new Vector2(1.1f, 1.0f));
+            PlaceProp(props, "V2/Nature/v2_nature_crate.png", 25.6f, 11.4f, new Vector2(1.6f, 1.8f));
+            PlaceProp(props, "V2/Nature/v2_nature_barrel.png", 14.4f, 11.6f, new Vector2(1.5f, 1.9f));
             PlaceProp(props, "V2/Nature/v2_nature_sign.png", 19.4f, 3.2f, new Vector2(0.7f, 0.6f));
 
             // 广场南沿的木栅栏（把广场和回农场的土路分开，但中间留通路）
             foreach (float fx in new[] { 11.5f, 12.5f, 21.5f, 22.5f })
-                PlaceProp(props, "V2/Village/v2_build_fence.png", fx, 4.2f, new Vector2(0.9f, 0.4f));
+                PlaceProp(props, "V2/Village/v2_build_fence.png", fx, 4.2f, new Vector2(1.0f, 0.6f));
 
             // 边缘绿化（避开广场与建筑）
             // (3.0, 16) 会顶出地图（树高 4.7 格，地图只有 20），下移到 14.4
+            // 树碰撞盒 1.1x1.8（v0.18）：挡住树干，玩家不再能走进树冠图里被盖住；
+            // 宽 1.1 保证树与树之间还能走人（可砍的田间树除外，那套仍留窄缝）。
             foreach (var p in new[] { (2.4f, 5.5f), (2.2f, 10.5f), (3.0f, 14.4f), (32.6f, 6f), (33.2f, 10.5f), (30.5f, 4.6f) })
-                PlaceProp(props, "V2/Nature/v2_nature_tree_broadleaf.png", p.Item1, p.Item2, new Vector2(1.0f, 0.8f));
+                PlaceProp(props, "V2/Nature/v2_nature_tree_broadleaf.png", p.Item1, p.Item2, new Vector2(1.1f, 1.8f));
             foreach (var p in new[] { (6.2f, 5.2f), (28.2f, 5.4f), (15.5f, 3.0f) })
                 PlaceProp(props, "V2/Nature/v2_nature_bush.png", p.Item1, p.Item2, new Vector2(1.6f, 0.9f));
             foreach (var p in new[] { (5.0f, 3.2f), (11.0f, 3.4f), (23.5f, 3.2f), (29.5f, 3.6f) })

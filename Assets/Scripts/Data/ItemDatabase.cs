@@ -151,5 +151,22 @@ namespace LuminousSSS
 
             return list;
         }
+
+        /// <summary>
+        /// 所有「商店有货」的物品（buyPrice > 0），不限类别。
+        /// 商店购买页签用这个 —— 只按 kind 过滤的话，铁矿/煤炭/肥料（Crop 类）
+        /// 会从购买列表里消失，打铁玩法直接断料（v0.18 修）。
+        /// </summary>
+        public static System.Collections.Generic.List<ItemDef> PurchasableAll()
+        {
+            var list = new System.Collections.Generic.List<ItemDef>();
+            var db = Instance;
+            if (db == null || db.items == null) return list;
+
+            foreach (var it in db.items)
+                if (it != null && it.buyPrice > 0) list.Add(it);
+
+            return list;
+        }
     }
 }
