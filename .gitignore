@@ -73,3 +73,8 @@ desktop.ini
 # Python 缓存（Tools/ 下的预览与生成脚本）
 __pycache__/
 *.pyc
+
+# ===================== 凭据（绝不入库）=====================
+# 发布 GitHub Release 用的 fine-grained PAT，由 Tools/publish_release.py 读取
+/.github_token
+*.token
