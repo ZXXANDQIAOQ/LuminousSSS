@@ -23,7 +23,23 @@ namespace LuminousSSS
         public Vector2 Facing => _facing;
 
         /// <summary>是否正在移动（有输入且已归一化）。</summary>
-        public bool IsMoving => _input.sqrMagnitude > 0.01f;
+        public bool IsMoving => !_locked && _input.sqrMagnitude > 0.01f;
+
+        private bool _locked;
+
+        /// <summary>
+        /// 输入是否被锁（铁匠演出 / 过场时用）。
+        /// 只挡输入，不碰 Rigidbody —— 传送、击退这类外力仍然生效。
+        /// </summary>
+        public bool InputLocked
+        {
+            get { return _locked; }
+            set
+            {
+                _locked = value;
+                if (_locked) _input = Vector2.zero;
+            }
+        }
 
         /// <summary>
         /// 直接设定朝向（传送落地时用：进屋后面朝里、下楼后面朝楼梯外）。
@@ -55,6 +71,13 @@ namespace LuminousSSS
 
         private void Update()
         {
+            // 演出期间（铁匠走到面前、挥锤）不接受移动输入，但朝向保留 —— 松开锁时不会突然转身
+            if (_locked)
+            {
+                _input = Vector2.zero;
+                return;
+            }
+
             // 键盘 / 手柄 / 屏幕摇杆的统一入口；摇杆那一路没有设备时恒为 zero
             Vector2 input = MoveInput.Read();
 

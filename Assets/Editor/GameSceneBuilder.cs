@@ -37,10 +37,10 @@ namespace LuminousSSS.EditorTools
         /// </summary>
         static readonly (string Id, string Key, string Pascal, string Label)[] WalkChars =
         {
-            ("001", "farmer",     "Farmer",     "农夫"),
-            ("002", "rain",       "Rain",       "雨女"),
-            ("003", "adventurer", "Adventurer", "冒险者"),
-            ("004", "witch",      "Witch",      "女巫"),
+            ("004", "witch",     "Witch",     "女巫"),
+            ("005", "knight",    "Knight",    "银骑士"),
+            ("006", "hunter",    "Hunter",    "森之猎手"),
+            ("007", "alchemist", "Alchemist", "炼金术士"),
         };
 
         static string CtrlPathOf(string pascal) => AnimDir + pascal + "PlayerController.controller";
@@ -942,22 +942,17 @@ namespace LuminousSSS.EditorTools
             selector.settingsButton = settingsBtn.GetComponent<Button>();
             selector.settingsPanel = settingsPanel;
             selector.nextSceneName = GameData.SceneFarm;
+            // v0.20：立绘角色（农夫/雨女/冒险者）只有静态图、没有行走帧，一律下线。
+            // 现在四个角色全是同一套 Q 版像素骨架 + 四方向行走动画，选择界面所见即所得。
             selector.characters = new[]
             {
-                NewChar("001", "农夫", "v2_portrait_001_farmer.png", "char_001_farmer.png"),
-                NewChar("002", "雨女", "v2_portrait_002_rain_maiden.png", "char_002_rain_maiden.png"),
-                NewChar("003", "冒险者", "v2_portrait_003_adventurer.png", "char_003_adventurer.png"),
                 new CharacterInfo
                 {
                     id = "004",
                     displayName = "女巫",
                     portrait = S(WitchIdleSprite),
                     worldSprite = S(WitchIdleSprite),
-                    // 女巫素材是 54×101 的 Q 版小像素人，人形立绘高 1024：
-                    // 不压回来的话会被 preserveAspect 放大到 260×486，比农夫（199×512）还宽，
-                    // 而且是大颗粒像素块，和精细立绘并列很割裂。
-                    // 0.7 → 实际显示约 182×340（Q 版小人略矮于人手立绘，宽度相近）。
-                    // 嫌高/矮改这一个数即可。
+                    // 54×101 的 Q 版小人，压到 0.7 后显示约 182×340，和下面三个新角色同体量
                     displayScale = 0.7f,
                     idleFrames = new[]
                     {
@@ -966,6 +961,9 @@ namespace LuminousSSS.EditorTools
                         S(WitchIdleSprite),
                     },
                 },
+                NewPixelChar("005", "银骑士", "knight"),
+                NewPixelChar("006", "森之猎手", "hunter"),
+                NewPixelChar("007", "炼金术士", "alchemist"),
             };
 
             EditorSceneManager.MarkSceneDirty(scene);
@@ -1021,6 +1019,28 @@ namespace LuminousSSS.EditorTools
 
             rootGO.SetActive(false);
             return sp;
+        }
+
+        /// <summary>
+        /// 像素角色的选择界面数据：立绘直接用待机帧（和场景里看到的完全是同一张），
+        /// 预览时播 idle/idle_bob 两帧呼吸。
+        /// displayScale 0.75 的依据：容器 260×512，64×112 的帧按宽度顶满后高 455，
+        /// 乘 0.75 ≈ 341，与女巫（182×340）齐平，四个角色在版式里不会一大一小。
+        /// </summary>
+        static CharacterInfo NewPixelChar(string id, string label, string key, float scale = 0.75f)
+        {
+            var a = S($"V2/Characters/v2_{key}_idle.png");
+            var b = S($"V2/Characters/v2_{key}_idle_bob.png");
+            var world = WorldSpriteOf(key, $"V2/Characters/v2_{key}_idle.png");
+            return new CharacterInfo
+            {
+                id = id,
+                displayName = label,
+                portrait = a,
+                worldSprite = world,
+                displayScale = scale,
+                idleFrames = b != null ? new[] { a, b, a } : new[] { a },
+            };
         }
 
         static CharacterInfo NewChar(string id, string label, string portraitFile, string worldFile)
@@ -1389,9 +1409,11 @@ namespace LuminousSSS.EditorTools
             MakeShopKeeper(props, "ShopKeeper_Stall", new Vector2(9f, 6.2f), new Vector2(2.0f, 1.0f),
                            "集市摊主", "集市摊位", "自家种的、刚钓的，我都收。");
 
-            // ---- 铁匠铺（v0.17：全新打铁玩法）
-            MakeBlacksmith(props, "Blacksmith", new Vector2(26.5f, 11.2f), new Vector2(2.8f, 1.2f),
-                           "铁匠老王", "来打把剑？铁矿和煤炭备好，剩下的看运气。");
+            // ---- 铁匠铺（v0.17：全新打铁玩法；v0.20：铁匠本人常驻在铺子前）
+            var smithNpc = MakeBlacksmithActor(props, "BlacksmithNpc", new Vector2(25.4f, 8.3f), VillageH);
+            var smithSpot = MakeBlacksmith(props, "Blacksmith", new Vector2(26.5f, 11.2f), new Vector2(2.8f, 1.2f),
+                                           "铁匠老王", "来打把剑？铁矿和煤炭备好，剩下的看运气。");
+            smithSpot.GetComponent<BlacksmithSpot>().actor = smithNpc.GetComponent<BlacksmithActor>();
 
             // ---- 回农场
             MakePortal(props, "RoadToFarm", new Vector2(17f, 0.6f), new Vector2(2.2f, 1.4f),
@@ -1488,6 +1510,68 @@ namespace LuminousSSS.EditorTools
             spot.smithName = smithName;
             spot.greeting = greeting;
             return go;
+        }
+
+        /// <summary>
+        /// 造铁匠 NPC：身体 + 手部挂的锤子 + <see cref="BlacksmithActor"/>。
+        /// 素材见 Tools/gen_cast.py（四方向行走 6 帧、挥锤 6 帧、独立锤子图）。
+        ///
+        /// 为什么锤子要单独一层：64px 宽的画布里，锤子举过头顶必然越界，
+        /// 塞进身体帧只能缩小动作幅度；拆出来后锤子可以绕手腕真转 100° 以上。
+        /// </summary>
+        static GameObject MakeBlacksmithActor(Transform parent, string name, Vector2 pos, int orderBase)
+        {
+            var go = new GameObject(name, typeof(YSort), typeof(BlacksmithActor));
+            go.transform.SetParent(parent, false);
+            go.transform.position = new Vector3(pos.x, pos.y, 0f);
+
+            var visual = new GameObject("Visual", typeof(SpriteRenderer));
+            visual.transform.SetParent(go.transform, false);
+            // 帧是 64x112、脚底基线 y=109：中心上移 0.875 让脚正好踩在 pos 上
+            visual.transform.localPosition = new Vector3(0f, 0.875f, 0f);
+            var sr = visual.GetComponent<SpriteRenderer>();
+            sr.sprite = S("V2/Characters/v2_npc_smith_idle_01.png");
+            sr.sortingOrder = 10;
+
+            var hammerGO = new GameObject("Hammer", typeof(SpriteRenderer));
+            hammerGO.transform.SetParent(visual.transform, false);
+            hammerGO.transform.localPosition = new Vector3(-0.25f, -0.5625f, -0.02f);
+            var hsr = hammerGO.GetComponent<SpriteRenderer>();
+            hsr.sprite = S("V2/Characters/v2_npc_smith_hammer.png");
+            hsr.sortingOrder = 11;
+
+            var actor = go.GetComponent<BlacksmithActor>();
+            actor.body = sr;
+            actor.hammer = hsr;
+            actor.hammerSprite = hsr.sprite;
+            actor.standOffset = 1.75f;
+            actor.idleFrames = new[]
+            {
+                S("V2/Characters/v2_npc_smith_idle_01.png"),
+                S("V2/Characters/v2_npc_smith_idle_02.png"),
+            };
+            actor.walkDown = SmithFrames("down");
+            actor.walkUp = SmithFrames("up");
+            actor.walkLeft = SmithFrames("left");
+            actor.walkRight = SmithFrames("right");
+            actor.strikeFrames = new Sprite[6];
+            for (int i = 0; i < 6; i++)
+                actor.strikeFrames[i] = S($"V2/Characters/v2_npc_smith_strike_{i + 1:00}.png");
+
+            var ys = go.GetComponent<YSort>();
+            ys.target = sr;
+            ys.multiplier = 10f;
+            ys.offset = orderBase * 10;
+
+            return go;
+        }
+
+        static Sprite[] SmithFrames(string dir)
+        {
+            var arr = new Sprite[6];
+            for (int i = 0; i < 6; i++)
+                arr[i] = S($"V2/Characters/v2_npc_smith_walk_{dir}_{i + 1:00}.png");
+            return arr;
         }
 
         // ------------------------------------------------------------ 小洋楼室内（v0.14）
@@ -2089,14 +2173,14 @@ namespace LuminousSSS.EditorTools
             visual.transform.SetParent(player.transform, false);
             visual.transform.localPosition = new Vector3(0f, 0.75f, 0f);
             var sr = visual.GetComponent<SpriteRenderer>();
-            sr.sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png");
+            sr.sprite = WorldSpriteOf("witch", WitchIdleSprite);
             sr.sortingOrder = 10;
 
             // 动画：先停用，由 PlayerAppearance 按所选角色启用对应控制器。
             // 每个角色都有自己的控制器（见 EnsureCharacterControllers），
             // 缺帧的角色 controller 为 null → CharacterAnimDriver 走 flipX + bob 兜底。
             var anim = visual.GetComponent<Animator>();
-            anim.runtimeAnimatorController = CtrlOf("001");
+            anim.runtimeAnimatorController = CtrlOf("004");
             anim.enabled = false;
 
             var cc = player.GetComponent<CircleCollider2D>();
@@ -2117,15 +2201,16 @@ namespace LuminousSSS.EditorTools
             var pa = player.GetComponent<PlayerAppearance>();
             pa.target = sr;
             pa.animator = anim;
+            // v0.20：四个角色都有四方向控制器，走路动画与移动方向真正绑定
             pa.entries = new[]
             {
-                new PlayerAppearance.Entry { id = "001", sprite = WorldSpriteOf("farmer", "Characters/char_001_farmer.png"),
-                                             controller = CtrlOf("001") },
-                new PlayerAppearance.Entry { id = "002", sprite = WorldSpriteOf("rain", "Characters/char_002_rain_maiden.png"),
-                                             controller = CtrlOf("002") },
-                new PlayerAppearance.Entry { id = "003", sprite = WorldSpriteOf("adventurer", "Characters/char_003_adventurer.png"),
-                                             controller = CtrlOf("003") },
                 new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = CtrlOf("004") },
+                new PlayerAppearance.Entry { id = "005", sprite = WorldSpriteOf("knight", "V2/Characters/v2_knight_idle.png"),
+                                             controller = CtrlOf("005") },
+                new PlayerAppearance.Entry { id = "006", sprite = WorldSpriteOf("hunter", "V2/Characters/v2_hunter_idle.png"),
+                                             controller = CtrlOf("006") },
+                new PlayerAppearance.Entry { id = "007", sprite = WorldSpriteOf("alchemist", "V2/Characters/v2_alchemist_idle.png"),
+                                             controller = CtrlOf("007") },
             };
 
             // Y 轴动态排序（与物件烘焙公式一致：MapH * 10 - y * 10）

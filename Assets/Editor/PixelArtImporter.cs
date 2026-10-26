@@ -52,6 +52,18 @@ namespace LuminousSSS.EditorTools
             { "v2_ui_stamina_fill",      new Vector4(6, 6, 6, 6) },      // 必须与底槽同值，否则长度对不齐
         };
 
+        /// <summary>
+        /// 自定义 pivot（归一化坐标，左下角为原点）。
+        ///
+        /// 目前只有一件：铁匠锤。它的 sprite 是 32x44、柄尾在底边，
+        /// 运行时绕「柄尾」旋转才能像真锤子一样抡起来；用默认的中心 pivot 会变成
+        /// 绕锤子中间转，看起来像风车。
+        /// </summary>
+        public static readonly Dictionary<string, Vector2> SpritePivots = new Dictionary<string, Vector2>
+        {
+            { "v2_npc_smith_hammer", new Vector2(0.5f, 0.04f) },
+        };
+
         /// <summary>按 Canvas referencePixelsPerUnit 导入的全屏底图（否则会被放大 1.5625 倍）。</summary>
         private static readonly HashSet<string> FullScreenUi = new HashSet<string> { "v2_ui_login_bg" };
 
@@ -87,10 +99,20 @@ namespace LuminousSSS.EditorTools
             importer.ReadTextureSettings(settings);
             settings.spriteMeshType = SpriteMeshType.FullRect;   // 防止 Tight 网格裁掉透明边
             settings.spriteExtrude = 0;
-            settings.spriteAlignment = (int)SpriteAlignment.Center;
 
             // 九宫格边界：只有列进表的 UI 底板才写，其余保持 0
             var stem = System.IO.Path.GetFileNameWithoutExtension(importer.assetPath);
+
+            // pivot：默认居中，个别件（铁匠锤）需要自定义轴心
+            if (SpritePivots.TryGetValue(stem, out var pivot))
+            {
+                settings.spriteAlignment = (int)SpriteAlignment.Custom;
+                settings.spritePivot = pivot;
+            }
+            else
+            {
+                settings.spriteAlignment = (int)SpriteAlignment.Center;
+            }
             settings.spriteBorder = SpriteBorders.TryGetValue(stem, out var border)
                 ? border
                 : Vector4.zero;

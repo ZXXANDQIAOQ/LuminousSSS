@@ -32,7 +32,9 @@ namespace LuminousSSS
         public static bool IsOpen => _inst != null && _inst._root != null && _inst._root.gameObject.activeSelf;
 
         const int SortingOrder = 200;
-        const float PanelW = 1100f;
+        const float PanelW = 1040f;
+        const float PanelLeftInset = 40f;    // 面板离屏幕左边缘
+        const float CameraShift = -2f;       // 打开面板时相机左移，把玩家/铁匠让到右半屏
         const float PanelH = 860f;
         const float UiPpu = UiFactory.UiPpu;
 
@@ -72,6 +74,7 @@ namespace LuminousSSS
             }
 
             _inst._root.SetActive(true);
+            _inst.BindStage(spot);
             _inst.ResetSession();
             UiModal.Apply();
         }
@@ -80,6 +83,7 @@ namespace LuminousSSS
         {
             if (_inst == null || _inst._root == null) return;
             _inst._root.SetActive(false);
+            _inst.ClearStage();
             UiModal.Apply();
         }
 
@@ -96,6 +100,15 @@ namespace LuminousSSS
             var panelImg = UiFactory.MakePanel(canvas.transform, "Panel",
                 UiTheme.Instance != null ? UiTheme.Instance.panel : null,
                 new Vector2(PanelW, PanelH));
+
+            // v0.20：面板靠左，右半边屏幕留给铁匠演出。
+            // 锻造的打击感全在世界里（铁匠抡锤 / 火花 / 震屏），面板居中的话什么都看不见。
+            // 靠左而不是靠右：村子里的铁匠铺在地图最右（x≈26.5/34），相机 bounds 会把
+            // 玩家顶到屏幕 67% 处 —— 面板放右边必然把人盖住。
+            var panelRt2 = panelImg.GetComponent<RectTransform>();
+            panelRt2.anchorMin = panelRt2.anchorMax = new Vector2(0f, 0.5f);
+            panelRt2.pivot = new Vector2(0f, 0.5f);
+            panelRt2.anchoredPosition = new Vector2(PanelLeftInset, 0f);
 
             // _root 必须绑整个 Canvas（含 Dim 遮罩），不能只绑 Panel ——
             // 否则 Close() 只隐藏面板，遮罩还留在屏幕上吃掉所有点击，表现为"卡死"。
@@ -253,6 +266,41 @@ namespace LuminousSSS
             InitFx();
         }
 
+        // ------------------------------------------------------------ 舞台（v0.20）
+
+        BlacksmithActor _actor;
+        bool _striking;
+
+        /// <summary>面板打开时把「谁在打铁」接进来：相机让位、拿到铁匠用于演出。</summary>
+        void BindStage(BlacksmithSpot spot)
+        {
+            _actor = spot != null ? spot.Actor : null;
+            _striking = false;
+
+            var cam = FindObjectOfType<CameraFollow>();
+            if (cam != null) cam.SetUiOffset(new Vector2(CameraShift, 0f));
+        }
+
+        /// <summary>面板关闭：相机复位、解锁玩家、铁匠走回铺子。</summary>
+        void ClearStage()
+        {
+            var cam = FindObjectOfType<CameraFollow>();
+            if (cam != null) cam.SetUiOffset(Vector2.zero);
+
+            if (_currentSpot != null) _currentSpot.Release();
+            _currentSpot = null;
+            _actor = null;
+            _striking = false;
+        }
+
+        /// <summary>当前有没有铁匠在场（没有就退回纯 UI 表现，保证老场景也能玩）。</summary>
+        bool HasActor => _actor != null;
+
+        static CameraFollow FindCamera()
+        {
+            return FindObjectOfType<CameraFollow>();
+        }
+
         // ------------------------------------------------------------ 状态机驱动
 
         void ResetSession()
@@ -318,14 +366,56 @@ namespace LuminousSSS
             _session.FinishHeating();   // 简化：跳过加热等待，直接可锤
             _statusText.text = "锤击开始！见好就收还是再敲一锤？";
             AudioManager.Heat();   // v0.19：入炉火焰音效
+
+            // v0.20：铁匠真的敲一下点炉 —— 火星四溅 + 余烬上飘
+            if (HasActor && !_actor.Busy)
+            {
+                _actor.PlayStrike(() =>
+                {
+                    Vector3 p = _actor.HammerTip;
+                    ForgeFx.SparkBurst(p, 12, new Color(1f, 0.72f, 0.32f), 1.15f);
+                    ForgeFx.Impact(p, new Color(1f, 0.55f, 0.18f), 0.8f);
+                    ForgeFx.Embers(p, 10, new Color(1f, 0.68f, 0.28f, 0.9f));
+                    var cam = FindCamera();
+                    if (cam != null) cam.Shake(0.06f, 0.16f);
+                });
+            }
             Refresh();
         }
 
         void OnStrike()
         {
             if (_session.Current != ForgeSession.State.Ready) return;
-            _session.Strike();
-            Refresh();
+            if (_striking) return;                       // 上一锤还没落地，别叠
+            if (HasActor && _actor.Busy) return;         // 铁匠在点火/收势中
+
+            if (!HasActor)
+            {
+                _session.Strike();                       // 没有铁匠：保持旧行为
+                Refresh();
+                return;
+            }
+
+            // 关键：先播挥锤，**命中帧**才结算。数值变化、火花、音效全部对齐锤子落地。
+            _striking = true;
+            SetActionButtons(false);
+            _actor.PlayStrike(
+                onImpact: () =>
+                {
+                    _session.Strike();                   // 触发 OnStrikeResult（特效 + 音效 + 文案）
+                    Refresh();
+                },
+                onDone: () =>
+                {
+                    _striking = false;
+                    Refresh();
+                });
+        }
+
+        void SetActionButtons(bool on)
+        {
+            if (_strikeBtn != null) _strikeBtn.interactable = on;
+            if (_collectBtn != null) _collectBtn.interactable = on;
         }
 
         void OnCollect()
@@ -431,9 +521,10 @@ namespace LuminousSSS
 
             bool isReady = _session.Current == ForgeSession.State.Ready;
             bool isIdle = _session.Current == ForgeSession.State.Idle;
+            bool canAct = isReady && !_striking;   // 锤子还在空中时按钮保持灰，防止连点
             _startBtn.interactable = isIdle;
-            _strikeBtn.interactable = isReady;
-            _collectBtn.interactable = isReady;
+            _strikeBtn.interactable = canAct;
+            _collectBtn.interactable = canAct;
         }
 
         // ------------------------------------------------------------ 遗物列表
@@ -624,31 +715,55 @@ namespace LuminousSSS
             }
         }
 
-        // ---- 组合反馈 ----
+        // ---- 组合反馈
+        // v0.20：有铁匠时，全部反馈发生在世界里（锤头位置 + 相机震屏）；
+        // 没有铁匠（老场景 / 素材缺失）才退回 UGUI 的震动 + 闪屏 + 方块火花。
         enum FxKind { Damage, Break, Success, Critical, Frenzy }
+
         void StrikeFx(FxKind kind, int sparkCount = 10)
         {
+            Color flash = kind switch
+            {
+                FxKind.Damage   => new Color(0.95f, 0.42f, 0.18f, 1f),
+                FxKind.Break    => new Color(1f, 0.28f, 0.18f, 1f),
+                FxKind.Success  => new Color(1f, 0.86f, 0.32f, 1f),
+                FxKind.Critical => new Color(0.86f, 0.56f, 1f, 1f),
+                FxKind.Frenzy   => new Color(0.42f, 0.82f, 1f, 1f),
+                _ => Color.white
+            };
+            Color spark = kind switch
+            {
+                FxKind.Damage   => new Color(1f, 0.58f, 0.26f),
+                FxKind.Break    => new Color(1f, 0.42f, 0.2f),
+                FxKind.Success  => new Color(1f, 0.9f, 0.4f),
+                FxKind.Critical => new Color(0.9f, 0.6f, 1f),
+                FxKind.Frenzy   => new Color(0.5f, 0.88f, 1f),
+                _ => Color.white
+            };
+
+            if (HasActor)
+            {
+                Vector3 p = _actor.HammerTip;
+                float radius = kind == FxKind.Break ? 1.7f : (kind == FxKind.Critical ? 1.35f : 0.9f);
+                float amp = kind == FxKind.Break ? 0.16f : (kind == FxKind.Critical ? 0.12f : 0.07f);
+
+                ForgeFx.Impact(p, flash, radius);
+                ForgeFx.SparkBurst(p, sparkCount, spark, kind == FxKind.Break ? 1.6f : 1f);
+
+                if (kind == FxKind.Critical || kind == FxKind.Frenzy)
+                    ForgeFx.Pillar(p, flash, 2.6f);
+                if (kind == FxKind.Break)
+                    ForgeFx.Smoke(p, 8, new Color(0.42f, 0.38f, 0.36f, 0.6f));
+
+                var cam = FindCamera();
+                if (cam != null) cam.Shake(amp, kind == FxKind.Break ? 0.34f : 0.2f);
+                return;
+            }
+
+            // ---- 兜底：纯 UGUI 表现（无铁匠 NpC 的场景）
             Shake(kind == FxKind.Break ? 16f : 10f);
-            Color c = kind switch
-            {
-                FxKind.Damage   => new Color(0.9f, 0.25f, 0.15f, 0.45f),
-                FxKind.Break    => new Color(1f, 0.15f, 0.1f, 0.7f),
-                FxKind.Success  => new Color(1f, 0.85f, 0.25f, 0.5f),
-                FxKind.Critical => new Color(0.85f, 0.45f, 1f, 0.6f),
-                FxKind.Frenzy   => new Color(0.35f, 0.75f, 1f, 0.55f),
-                _ => Color.white
-            };
-            Flash(c);
-            Color sparkColor = kind switch
-            {
-                FxKind.Break    => new Color(1f, 0.35f, 0.15f),
-                FxKind.Damage   => new Color(1f, 0.55f, 0.25f),
-                FxKind.Success  => new Color(1f, 0.9f, 0.35f),
-                FxKind.Critical => new Color(0.9f, 0.55f, 1f),
-                FxKind.Frenzy   => new Color(0.45f, 0.85f, 1f),
-                _ => Color.white
-            };
-            Sparks(sparkColor, sparkCount);
+            Flash(new Color(flash.r, flash.g, flash.b, 0.55f));
+            Sparks(spark, sparkCount);
         }
     }
 }

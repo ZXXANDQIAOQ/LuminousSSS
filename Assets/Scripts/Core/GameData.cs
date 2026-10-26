@@ -27,10 +27,11 @@ namespace LuminousSSS
         /// <summary>集市入村路口：从农场过来时落在集市的这条路上（面朝上，往村里走）。</summary>
         public const string SpawnRoad = "Road";
 
-        /// <summary>已选角色编号（001 / 002 / 003）在 PlayerPrefs 里的键。</summary>
+        /// <summary>已选角色编号（004 女巫 / 005 银骑士 / 006 森之猎手 / 007 炼金术士）在 PlayerPrefs 里的键。</summary>
         public const string PrefCharacterId = "LuminousSSS.CharacterId";
 
-        public const string DefaultCharacterId = "001";
+        /// <summary>首次进入的默认角色：女巫（唯一有专属 idle 呼吸帧的角色）</summary>
+        public const string DefaultCharacterId = "004";
 
         public static string SelectedCharacterId
         {

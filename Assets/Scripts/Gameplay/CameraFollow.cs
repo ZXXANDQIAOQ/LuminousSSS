@@ -48,6 +48,16 @@ namespace LuminousSSS
         public Vector2 min = new Vector2(-100f, -100f);
         public Vector2 max = new Vector2(100f, 100f);
 
+        [Header("界面偏移（打开面板时把玩家让到屏幕另一侧）")]
+        [Tooltip("临时叠加到跟随点上的偏移，世界单位。锻造面板靠右时设 +3，玩家会被推到屏幕左半")]
+        public Vector2 uiOffset;
+
+        [Header("震屏")]
+        [Tooltip("当前震屏强度（世界单位），由 Shake() 写入并逐帧衰减")]
+        private float _shakeAmp;
+        private float _shakeTime;
+        private float _shakeDur;
+
         [Header("像素对齐")]
         [Tooltip("位置量化网格（世界单位）。1/128 ≈ 半屏幕像素：压掉浮点噪声与像素游走，又不会跳格")]
         public float pixelGrid = 1f / 128f;
@@ -72,6 +82,24 @@ namespace LuminousSSS
             if (target != null) _pc = target.GetComponent<PlayerController>();
 
             if (snapOnStart && target != null) SnapNow();
+        }
+
+        /// <summary>
+        /// 震屏：锤子砸在铁砧上那一下的力量感。
+        /// 用真实时间衰减 —— 面板打开时 timeScale=0，用缩放时间会永远震下去。
+        /// </summary>
+        public void Shake(float strength, float duration = 0.22f)
+        {
+            // 叠加而不是覆盖：连续锤击时后一下不会把前一下的余震掐断
+            _shakeAmp = Mathf.Min(0.6f, Mathf.Max(_shakeAmp, strength));
+            _shakeDur = Mathf.Max(0.01f, duration);
+            _shakeTime = _shakeDur;
+        }
+
+        /// <summary>临时界面偏移（面板打开时把玩家让开）。传 Vector2.zero 复位。</summary>
+        public void SetUiOffset(Vector2 offset)
+        {
+            uiOffset = offset;
         }
 
         /// <summary>
@@ -120,7 +148,18 @@ namespace LuminousSSS
             _pos = Vector3.SmoothDamp(_pos, desired, ref _vel, smoothTime);
             _pos.z = desired.z;          // z 只影响 2D 裁剪，别参与平滑
 
-            transform.position = Quantize(_pos);
+            Vector3 shaken = _pos;
+            if (_shakeTime > 0f)
+            {
+                _shakeTime -= Time.unscaledDeltaTime;
+                float k = Mathf.Clamp01(_shakeTime / _shakeDur);
+                float amp = _shakeAmp * k * k;      // 二次衰减：落地一下，余震很快收干净
+                shaken.x += Random.Range(-amp, amp);
+                shaken.y += Random.Range(-amp, amp);
+                if (_shakeTime <= 0f) _shakeAmp = 0f;
+            }
+
+            transform.position = Quantize(shaken);
         }
 
         /// <summary>按 pixelGrid 量化（只量化 x/y，z 原样保留）。</summary>
@@ -135,8 +174,8 @@ namespace LuminousSSS
         /// <summary>目标位置：玩家 + 胸口偏移 + 朝向预判，最后按地图边界 clamp。</summary>
         private Vector3 ComputeDesired()
         {
-            var desired = new Vector3(target.position.x + targetOffset.x + _look.x,
-                                      target.position.y + targetOffset.y + _look.y,
+            var desired = new Vector3(target.position.x + targetOffset.x + _look.x + uiOffset.x,
+                                      target.position.y + targetOffset.y + _look.y + uiOffset.y,
                                       transform.position.z);
 
             if (!useBounds) return desired;
