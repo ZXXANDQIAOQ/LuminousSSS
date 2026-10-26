@@ -38,11 +38,13 @@ namespace LuminousSSS.EditorTools
         /// <summary>
         /// 有「四方向行走帧」的角色：只有它们会生成 Animator 剪辑与控制器。
         ///
-        /// 004「烁」不在表里 —— 它是特殊角色，用的是另一套 54×101 骨架（形象必须原样保留，
-        /// 不做帧重绘），移动表现由 CharacterAnimDriver 的飘浮分支负责，见 CreatePlayer。
+        /// 004「烁」的帧不是重画的：Tools/gen_witch_walk.py 把原画两条靴子的像素
+        /// 整体做了交替位移（原画两腿之间有 4px 空隙，可以分开），上半身一个像素没动。
+        /// 所以它的动画和其它三个角色走同一套生成流程，形象仍是原画。
         /// </summary>
         static readonly (string Id, string Key, string Pascal, string Label)[] WalkChars =
         {
+            ("004", "witch",     "Witch",     "烁"),
             ("005", "knight",    "Knight",    "银骑士"),
             ("006", "hunter",    "Hunter",    "森之猎手"),
             ("007", "alchemist", "Alchemist", "炼金术士"),
@@ -536,8 +538,6 @@ namespace LuminousSSS.EditorTools
         // 现有那 24 张已重命名为 v2_walk_farmer_*，回归农夫。
         static void EnsureCharacterAnimations()
         {
-            RemoveDeprecatedCharacterAssets();
-
             int ok = 0, skipped = 0;
             foreach (var c in WalkChars)
             {
@@ -545,32 +545,6 @@ namespace LuminousSSS.EditorTools
                 else skipped++;
             }
             Debug.Log($"[LuminousSSS] 角色动画：{ok} 个角色已生成剪辑，{skipped} 个因缺帧跳过（走 bob 兜底）。");
-        }
-
-        /// <summary>
-        /// 清掉 v0.20 遗留的「女巫」动画资产。
-        ///
-        /// 004 现在是「烁」—— 特殊角色，形象保持原样（54×101 那套），不再用帧动画，
-        /// 移动由 CharacterAnimDriver 的飘浮分支表现。旧剪辑引用的是已删除的
-        /// v2_walk_witch_*.png（会变成 missing sprite），留着只会让工程里到处是粉框。
-        /// </summary>
-        static void RemoveDeprecatedCharacterAssets()
-        {
-            string[] stale =
-            {
-                AnimDir + "WitchPlayerController.controller",
-                AnimDir + "witch_idle.anim",
-                AnimDir + "witch_walk_down.anim",
-            };
-            int n = 0;
-            foreach (var p in stale)
-            {
-                if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(p) == null) continue;
-                AssetDatabase.DeleteAsset(p);
-                n++;
-            }
-            if (n > 0)
-                Debug.Log($"[LuminousSSS] 已清理 {n} 个废弃的女巫动画资产（烁改用飘浮绑定）");
         }
 
         /// <summary>生成单个角色的 idle + 4 方向行走剪辑。素材不全时返回 false 且不生成任何剪辑。</summary>
@@ -2248,16 +2222,15 @@ namespace LuminousSSS.EditorTools
             var pa = player.GetComponent<PlayerAppearance>();
             pa.target = sr;
             pa.animator = anim;
-            // v0.21：
-            //   004 烁 —— 特殊角色，controller 留空 + floaty=true，走「静止帧 + 悬浮」这条线；
-            //              它的素材 54×101 与 64×112 那套不同，脚底高度由 PlayerAppearance 按图重算。
-            //   005/006/007 —— 四方向控制器，走路动画与移动方向真正绑定。
-            //   visualOffsetY = -0.047：64×112 的帧内容底边在 109px（离图底 3px），
-            //   半高公式会把角色抬起来 3px，这里补回去，脚才真正踩在地面上。
+            // v0.22：四个角色都走四方向动画。
+            //   004 烁 —— 素材 54×101（与 64×112 那套不同），行走帧由原画靴子位移而来；
+            //              floaty 是给它留的特殊表现开关，现在有行走帧了，保持关闭。
+            //   visualOffsetY：64×112 的帧内容底边在 109px（离图底 3px），半高公式会把
+            //   角色抬起 3px，这里补回去；54×101 的烁贴底，不需要补。
             pa.entries = new[]
             {
                 new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite),
-                                             controller = null, floaty = true, visualOffsetY = 0f },
+                                             controller = CtrlOf("004"), floaty = false, visualOffsetY = 0f },
                 new PlayerAppearance.Entry { id = "005", sprite = WorldSpriteOf("knight", "V2/Characters/v2_knight_idle.png"),
                                              controller = CtrlOf("005"), visualOffsetY = -0.047f },
                 new PlayerAppearance.Entry { id = "006", sprite = WorldSpriteOf("hunter", "V2/Characters/v2_hunter_idle.png"),
