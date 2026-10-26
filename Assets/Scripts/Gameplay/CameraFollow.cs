@@ -152,8 +152,8 @@ namespace LuminousSSS
             if (_shakeTime > 0f)
             {
                 _shakeTime -= Time.unscaledDeltaTime;
-                float k = Mathf.Clamp01(_shakeTime / _shakeDur);
-                float amp = _shakeAmp * k * k;      // 二次衰减：落地一下，余震很快收干净
+                float decay = Mathf.Clamp01(_shakeTime / _shakeDur);
+                float amp = _shakeAmp * decay * decay;   // 二次衰减：落地一下，余震很快收干净
                 shaken.x += Random.Range(-amp, amp);
                 shaken.y += Random.Range(-amp, amp);
                 if (_shakeTime <= 0f) _shakeAmp = 0f;
