@@ -43,8 +43,11 @@ namespace LuminousSSS
         [Tooltip("行走帧率")]
         public float walkFps = 12f;
 
-        [Tooltip("站到玩家面前后，与玩家保持的水平距离（格，正值=玩家右侧）")]
-        public float standOffset = 1.75f;
+        [Tooltip("打铁站位：铁砧正后方（世界坐标）。未设置时退回「常驻位下方 0.75 格」")]
+        public Vector3 stationPos;
+
+        [Tooltip("炉口位置（世界坐标）：面板打开期间从这里持续冒余烬。零向量=没有炉子")]
+        public Vector3 forgeMouth;
 
         private Vector3 _home;
         private Facing _homeFacing = Facing.Down;
@@ -88,13 +91,15 @@ namespace LuminousSSS
         // ------------------------------------------------------------ 对外接口
 
         /// <summary>
-        /// 走到玩家面前并面向他，就位后回调（此时才该弹面板）。
-        /// 玩家在哪一侧不重要：铁匠会绕到玩家的左侧站定，正好落在锻造面板旁边的空位上。
+        /// 走到铁砧后面站定（面向铁砧），就位后回调（此时才该弹面板）。
+        ///
+        /// 早先的版本是「走到玩家身边」，但那样锤子砸的是空气；v0.21 起铁砧是实体道具，
+        /// 铁匠站到砧后、锤头正好落在砧面上，火花才有落点。
         /// </summary>
-        public void Serve(Transform player, Action onReady)
+        public void Serve(Action onReady)
         {
-            if (_busy || player == null) { onReady?.Invoke(); return; }
-            _act = StartCoroutine(ServeRoutine(player, onReady));
+            if (_busy) { onReady?.Invoke(); return; }
+            _act = StartCoroutine(ServeRoutine(onReady));
         }
 
         /// <summary>回铺子待机（关闭面板后调用）。</summary>
@@ -127,16 +132,16 @@ namespace LuminousSSS
 
         // ------------------------------------------------------------ 协程
 
-        private IEnumerator ServeRoutine(Transform player, Action onReady)
+        private IEnumerator ServeRoutine(Action onReady)
         {
             _busy = true;
 
-            // 站到玩家右侧：锻造面板靠左，村子里的铁匠铺又在地图最右，
-            // 右半边才是"面板之外"的可见区（实测相机 bounds 会把玩家顶到屏幕 67% 处）
-            Vector3 target = player.position + new Vector3(standOffset, 0.05f, 0f);
+            Vector3 target = stationPos != Vector3.zero
+                ? stationPos
+                : transform.position + new Vector3(0f, -0.75f, 0f);
             yield return MoveTo(target);
 
-            FaceTowards(player.position);
+            SetFacing(Facing.Down);      // 面朝铁砧（砧在站位正下方）
             PlayIdle();
 
             // 一个小"站定"的动作：抬一下手再放下，避免走到位立刻弹窗显得生硬
@@ -250,11 +255,6 @@ namespace LuminousSSS
             return d.y >= 0f ? Facing.Up : Facing.Down;
         }
 
-        private void FaceTowards(Vector3 worldPoint)
-        {
-            SetFacing(DirOf(worldPoint - transform.position));
-        }
-
         private void SetFacing(Facing f)
         {
             _facing = f;
@@ -328,6 +328,8 @@ namespace LuminousSSS
 
         private void Update()
         {
+            TickForgeEmbers();
+
             // 演出中（走路由 MoveTo 按时间轴取帧、挥锤由协程逐帧推）不在这里推进
             if (_busy) return;
             if (_frames == null || _frames.Length <= 1) return;
@@ -340,6 +342,27 @@ namespace LuminousSSS
                 _frame = (_frame + 1) % _frames.Length;
                 ApplyFrame();
             }
+        }
+
+        private float _emberTimer;
+
+        /// <summary>
+        /// 面板打开期间，炉口持续冒余烬 —— 让"炉子"是真的在烧，而不是一张贴图。
+        /// 用真实时间累计，面板冻结 timeScale 也照常。
+        /// </summary>
+        private void TickForgeEmbers()
+        {
+            if (forgeMouth == Vector3.zero) return;
+            if (!ForgePanel.IsOpen) return;
+
+            _emberTimer -= Time.unscaledDeltaTime;
+            if (_emberTimer > 0f) return;
+
+            // 注意：本文件同时 using System（为了 Action），Random 会与 System.Random 二义，
+            // 必须写全 UnityEngine.Random
+            _emberTimer = UnityEngine.Random.Range(0.16f, 0.34f);
+            ForgeFx.Embers(forgeMouth + (Vector3)(UnityEngine.Random.insideUnitCircle * 0.16f), 1,
+                           new Color(1f, 0.62f, 0.22f, 0.9f));
         }
 
         private void SetHammer(Vector2 handLocal, float angle)

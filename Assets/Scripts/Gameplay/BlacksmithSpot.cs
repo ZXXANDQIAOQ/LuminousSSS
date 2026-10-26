@@ -7,9 +7,9 @@ namespace LuminousSSS
     ///
     /// v0.20 起「打铁」不再是一按就弹面板：
     ///   1) 玩家按 E → 锁住玩家输入；
-    ///   2) 铁匠从铺子旁走到玩家左侧站定、面向玩家（世界内的"人"先出场）；
+    ///   2) 铁匠从铺子旁走到铁砧后面站定、面向铁砧（世界内的"人"先出场）；
     ///   3) 就位后才弹出锻造面板（面板靠右，左边留出舞台）；
-    ///   4) 每次锤击由铁匠真的抡一锤，命中帧才结算数值 + 火花 + 音效；
+    ///   4) 每次锤击由铁匠真的抡一锤，锤头落在铁砧上，命中帧才结算数值 + 火花 + 音效；
     ///   5) 关面板 → 铁匠走回铺子，解锁玩家。
     /// </summary>
     public class BlacksmithSpot : MonoBehaviour, IInteractable
@@ -54,7 +54,8 @@ namespace LuminousSSS
 
             if (player != null) player.InputLocked = true;
 
-            smith.Serve(who != null ? who.transform : null, () => ForgePanel.Open(this));
+            // 铁匠走向铁砧（不是走向玩家）：锤子要砸在砧面上，火花才有落点
+            smith.Serve(() => ForgePanel.Open(this));
         }
 
         /// <summary>面板关闭时由 ForgePanel 调用：解锁玩家、铁匠回家。</summary>

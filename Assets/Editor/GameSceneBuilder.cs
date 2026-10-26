@@ -35,9 +35,14 @@ namespace LuminousSSS.EditorTools
         /// 缺帧的角色会被跳过（生成器 warning），该角色在游戏里由 CharacterAnimDriver 走
         /// flipX + bob 兜底 —— 所以四个角色可以陆续交付，不影响已交付的角色。
         /// </summary>
+        /// <summary>
+        /// 有「四方向行走帧」的角色：只有它们会生成 Animator 剪辑与控制器。
+        ///
+        /// 004「烁」不在表里 —— 它是特殊角色，用的是另一套 54×101 骨架（形象必须原样保留，
+        /// 不做帧重绘），移动表现由 CharacterAnimDriver 的飘浮分支负责，见 CreatePlayer。
+        /// </summary>
         static readonly (string Id, string Key, string Pascal, string Label)[] WalkChars =
         {
-            ("004", "witch",     "Witch",     "女巫"),
             ("005", "knight",    "Knight",    "银骑士"),
             ("006", "hunter",    "Hunter",    "森之猎手"),
             ("007", "alchemist", "Alchemist", "炼金术士"),
@@ -531,6 +536,8 @@ namespace LuminousSSS.EditorTools
         // 现有那 24 张已重命名为 v2_walk_farmer_*，回归农夫。
         static void EnsureCharacterAnimations()
         {
+            RemoveDeprecatedCharacterAssets();
+
             int ok = 0, skipped = 0;
             foreach (var c in WalkChars)
             {
@@ -538,6 +545,32 @@ namespace LuminousSSS.EditorTools
                 else skipped++;
             }
             Debug.Log($"[LuminousSSS] 角色动画：{ok} 个角色已生成剪辑，{skipped} 个因缺帧跳过（走 bob 兜底）。");
+        }
+
+        /// <summary>
+        /// 清掉 v0.20 遗留的「女巫」动画资产。
+        ///
+        /// 004 现在是「烁」—— 特殊角色，形象保持原样（54×101 那套），不再用帧动画，
+        /// 移动由 CharacterAnimDriver 的飘浮分支表现。旧剪辑引用的是已删除的
+        /// v2_walk_witch_*.png（会变成 missing sprite），留着只会让工程里到处是粉框。
+        /// </summary>
+        static void RemoveDeprecatedCharacterAssets()
+        {
+            string[] stale =
+            {
+                AnimDir + "WitchPlayerController.controller",
+                AnimDir + "witch_idle.anim",
+                AnimDir + "witch_walk_down.anim",
+            };
+            int n = 0;
+            foreach (var p in stale)
+            {
+                if (AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(p) == null) continue;
+                AssetDatabase.DeleteAsset(p);
+                n++;
+            }
+            if (n > 0)
+                Debug.Log($"[LuminousSSS] 已清理 {n} 个废弃的女巫动画资产（烁改用飘浮绑定）");
         }
 
         /// <summary>生成单个角色的 idle + 4 方向行走剪辑。素材不全时返回 false 且不生成任何剪辑。</summary>
@@ -949,10 +982,11 @@ namespace LuminousSSS.EditorTools
                 new CharacterInfo
                 {
                     id = "004",
-                    displayName = "女巫",
+                    displayName = "烁",
                     portrait = S(WitchIdleSprite),
                     worldSprite = S(WitchIdleSprite),
-                    // 54×101 的 Q 版小人，压到 0.7 后显示约 182×340，和下面三个新角色同体量
+                    // 54×101 的 Q 版小人，压到 0.7 后显示约 182×340，和下面三个新角色同体量。
+                    // 这张立绘就是场景里的小人本体 —— 烁不做帧重绘，所见即所得。
                     displayScale = 0.7f,
                     idleFrames = new[]
                     {
@@ -1409,11 +1443,24 @@ namespace LuminousSSS.EditorTools
             MakeShopKeeper(props, "ShopKeeper_Stall", new Vector2(9f, 6.2f), new Vector2(2.0f, 1.0f),
                            "集市摊主", "集市摊位", "自家种的、刚钓的，我都收。");
 
-            // ---- 铁匠铺（v0.17：全新打铁玩法；v0.20：铁匠本人常驻在铺子前）
-            var smithNpc = MakeBlacksmithActor(props, "BlacksmithNpc", new Vector2(25.4f, 8.3f), VillageH);
+            // ---- 铁匠铺（v0.17 玩法 / v0.20 铁匠本人 / v0.21 铁砧与锻炉实体）
+            // 布局要点：铁砧必须落在「面板靠左之后仍可见」的那条竖带上（屏幕 56% 往右），
+            // 而村子里的铁匠铺就在地图最右，所以这三件都贴着铺子排开，不往广场中间放。
+            PlaceProp(props, "V2/Village/v2_build_anvil.png", 25.2f, 9.4f,
+                      new Vector2(0.72f, 0.30f), VillageH);      // 只有砧座挡路，砧面可以走上去
+            PlaceProp(props, "V2/Village/v2_build_forge.png", 27.0f, 9.6f,
+                      new Vector2(0.86f, 0.55f), VillageH);
+
+            var smithNpc = MakeBlacksmithActor(props, "BlacksmithNpc", new Vector2(26.3f, 8.6f), VillageH);
+            var smithActor = smithNpc.GetComponent<BlacksmithActor>();
+            // 站位 = 铁砧正后方；锤头落下时正好压在砧面上，火花才有落点
+            smithActor.stationPos = new Vector3(25.2f, 10.05f, 0f);
+            // 炉口 = 炉子底边 + 0.62 格（炉膛火焰中心的高度）
+            smithActor.forgeMouth = new Vector3(27.0f, 10.22f, 0f);
+
             var smithSpot = MakeBlacksmith(props, "Blacksmith", new Vector2(26.5f, 11.2f), new Vector2(2.8f, 1.2f),
                                            "铁匠老王", "来打把剑？铁矿和煤炭备好，剩下的看运气。");
-            smithSpot.GetComponent<BlacksmithSpot>().actor = smithNpc.GetComponent<BlacksmithActor>();
+            smithSpot.GetComponent<BlacksmithSpot>().actor = smithActor;
 
             // ---- 回农场
             MakePortal(props, "RoadToFarm", new Vector2(17f, 0.6f), new Vector2(2.2f, 1.4f),
@@ -1544,7 +1591,7 @@ namespace LuminousSSS.EditorTools
             actor.body = sr;
             actor.hammer = hsr;
             actor.hammerSprite = hsr.sprite;
-            actor.standOffset = 1.75f;
+            actor.stationPos = Vector3.zero;    // 由 BuildVillageScene 按铁砧位置赋
             actor.idleFrames = new[]
             {
                 S("V2/Characters/v2_npc_smith_idle_01.png"),
@@ -2173,14 +2220,14 @@ namespace LuminousSSS.EditorTools
             visual.transform.SetParent(player.transform, false);
             visual.transform.localPosition = new Vector3(0f, 0.75f, 0f);
             var sr = visual.GetComponent<SpriteRenderer>();
-            sr.sprite = WorldSpriteOf("witch", WitchIdleSprite);
+            sr.sprite = S(WitchIdleSprite);   // 占位：Start 时 PlayerAppearance 会按所选角色覆盖
             sr.sortingOrder = 10;
 
             // 动画：先停用，由 PlayerAppearance 按所选角色启用对应控制器。
             // 每个角色都有自己的控制器（见 EnsureCharacterControllers），
             // 缺帧的角色 controller 为 null → CharacterAnimDriver 走 flipX + bob 兜底。
             var anim = visual.GetComponent<Animator>();
-            anim.runtimeAnimatorController = CtrlOf("004");
+            anim.runtimeAnimatorController = CtrlOf("005");
             anim.enabled = false;
 
             var cc = player.GetComponent<CircleCollider2D>();
@@ -2201,16 +2248,22 @@ namespace LuminousSSS.EditorTools
             var pa = player.GetComponent<PlayerAppearance>();
             pa.target = sr;
             pa.animator = anim;
-            // v0.20：四个角色都有四方向控制器，走路动画与移动方向真正绑定
+            // v0.21：
+            //   004 烁 —— 特殊角色，controller 留空 + floaty=true，走「静止帧 + 悬浮」这条线；
+            //              它的素材 54×101 与 64×112 那套不同，脚底高度由 PlayerAppearance 按图重算。
+            //   005/006/007 —— 四方向控制器，走路动画与移动方向真正绑定。
+            //   visualOffsetY = -0.047：64×112 的帧内容底边在 109px（离图底 3px），
+            //   半高公式会把角色抬起来 3px，这里补回去，脚才真正踩在地面上。
             pa.entries = new[]
             {
-                new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite), controller = CtrlOf("004") },
+                new PlayerAppearance.Entry { id = "004", sprite = S(WitchIdleSprite),
+                                             controller = null, floaty = true, visualOffsetY = 0f },
                 new PlayerAppearance.Entry { id = "005", sprite = WorldSpriteOf("knight", "V2/Characters/v2_knight_idle.png"),
-                                             controller = CtrlOf("005") },
+                                             controller = CtrlOf("005"), visualOffsetY = -0.047f },
                 new PlayerAppearance.Entry { id = "006", sprite = WorldSpriteOf("hunter", "V2/Characters/v2_hunter_idle.png"),
-                                             controller = CtrlOf("006") },
+                                             controller = CtrlOf("006"), visualOffsetY = -0.047f },
                 new PlayerAppearance.Entry { id = "007", sprite = WorldSpriteOf("alchemist", "V2/Characters/v2_alchemist_idle.png"),
-                                             controller = CtrlOf("007") },
+                                             controller = CtrlOf("007"), visualOffsetY = -0.047f },
             };
 
             // Y 轴动态排序（与物件烘焙公式一致：MapH * 10 - y * 10）
