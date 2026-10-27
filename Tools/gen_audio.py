@@ -10,6 +10,10 @@ LuminousSSS 音频合成器（v0.2）
     Assets/Audio/bgm_main.wav     循环 BGM（Am-F-C-G 琶音，9.6s 无缝循环）
     Assets/Audio/sfx_click.wav    普通按钮点击
     Assets/Audio/sfx_confirm.wav  「开始游戏」确认音
+    Assets/Audio/sfx_splash.wav   浮标入水 / 水花（v0.21）
+    Assets/Audio/sfx_bite.wav     咬钩提示「叮」（v0.21）
+
+输出目录可用环境变量 LUMINOUS_AUDIO_OUT 覆盖（只生成到临时目录试听用）。
 """
 import math
 import os
@@ -19,7 +23,7 @@ import wave
 
 SR = 22050
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "Assets", "Audio")
+OUT = os.environ.get("LUMINOUS_AUDIO_OUT") or os.path.join(ROOT, "Assets", "Audio")
 
 
 def midi_hz(m):
@@ -70,6 +74,22 @@ def write_wav(path, samples, peak=0.85):
         w.writeframes(b"".join(struct.pack("<h", int(max(-1.0, min(1.0, s * k)) * 32767))
                                for s in samples))
     print(f"  {os.path.relpath(path, ROOT)}  ({len(samples)/SR:.2f}s, {os.path.getsize(path)//1024}KB)")
+
+
+def fade_edges(samples, ms=5):
+    """首尾各做 ms 毫秒线性淡入淡出。
+
+    为什么每个音效都要过一遍：切割点落在非零振幅上会听到「啪」的一下，
+    在手机上尤其明显（外放小喇叭的低频响应差，爆音变成刺啦声）。
+    """
+    n = max(1, int(SR * ms / 1000.0))
+    if len(samples) < 2 * n:
+        return samples
+    for i in range(n):
+        k = i / float(n)
+        samples[i] *= k
+        samples[len(samples) - 1 - i] *= k
+    return samples
 
 
 def gen_bgm():
@@ -278,6 +298,83 @@ def gen_damage():
     write_wav(os.path.join(OUT, "sfx_damage.wav"), samples)
 
 
+# ============================================================
+# 钓鱼音效（v0.21）
+# ============================================================
+
+def gen_splash():
+    """浮标入水 / 水花。总长 0.30s。
+
+    三层叠出「扑通」：
+      1) 低频冲击（320 → 90Hz 快速下滑）：水面被顶开的那一下「咚」；
+      2) 低通噪声尾（一阶低通 + 指数衰减）：水花散开的沙沙声；
+      3) 两三颗高频水珠（1400/1900Hz 极短正弦）：离开水面的小水点。
+    噪声必须压得比「咚」低，否则手机上会变成一片白噪。
+    """
+    dur = 0.30
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261101)
+
+    prev = 0.0
+    for i in range(len(samples)):
+        t = i / SR
+
+        # 1) 低频冲击
+        if t < 0.09:
+            f = 320 - 230 * (t / 0.09)
+            samples[i] += 0.85 * math.sin(2 * math.pi * f * t) * math.exp(-t / 0.022)
+
+        # 2) 水花噪声尾
+        if t > 0.005:
+            env = math.exp(-(t - 0.005) / 0.07)
+            white = rnd.uniform(-1.0, 1.0)
+            prev = 0.88 * prev + 0.12 * white          # 强低通：只留「呼」的中低频
+            samples[i] += 0.42 * env * (white * 0.30 + prev * 0.70)
+
+        # 3) 水珠
+        for start, f, g in ((0.035, 1400, 0.16), (0.075, 1900, 0.12), (0.115, 1650, 0.08)):
+            if t >= start and t < start + 0.05:
+                tt = t - start
+                samples[i] += g * math.sin(2 * math.pi * f * tt) * math.exp(-tt / 0.012)
+
+    fade_edges(samples, 5)
+    write_wav(os.path.join(OUT, "sfx_splash.wav"), samples, peak=0.8)
+
+
+def gen_bite():
+    """咬钩提示音「叮」。总长 0.24s。
+
+    为什么不能用 sfx_confirm：那个是两段式上行铃（E5→A5），带明显的「确认感」，
+    连续钓十几杆会听腻；这里要的是一声短、高、亮的金属铃 —— 只提示「水面动了」，
+    不表达「操作成功」。
+
+    构成：30ms 的上行扫频（880→1500Hz）当起音 + 三个非谐波分音（1320/1980/2640Hz）
+    快速衰减。分音取非整数倍关系（1320×1.5、×2.0）才有金属感，整数倍会像电子琴。
+    """
+    dur = 0.24
+    samples = [0.0] * int(dur * SR)
+    rnd = random.Random(20261101)
+
+    for i in range(len(samples)):
+        t = i / SR
+
+        # 起音的「嗒」：极短的高频瞬态，让声音有落点
+        if t < 0.006:
+            samples[i] += 0.45 * rnd.uniform(-1, 1) * math.exp(-t / 0.0022)
+
+        # 上行扫频
+        if t < 0.03:
+            f = 880 + 620 * (t / 0.03)
+            samples[i] += 0.30 * math.sin(2 * math.pi * f * t) * math.exp(-t / 0.010)
+
+        # 铃体：非整数倍分音
+        for f, g, decay in ((1320, 0.55, 0.085), (1980, 0.30, 0.055), (2640, 0.16, 0.035)):
+            samples[i] += g * math.sin(2 * math.pi * f * t) * math.exp(-t / decay)
+
+    fade_edges(samples, 5)
+    write_wav(os.path.join(OUT, "sfx_bite.wav"), samples, peak=0.8)
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     gen_bgm()
@@ -291,4 +388,6 @@ if __name__ == "__main__":
     gen_frenzy()
     gen_heat()
     gen_damage()
-    print("音频生成完成（含打铁 7 音效）。")
+    gen_splash()      # 钓鱼：入水 / 水花
+    gen_bite()        # 钓鱼：咬钩「叮」
+    print("音频生成完成（含打铁 7 音效 + 钓鱼 2 音效）。")

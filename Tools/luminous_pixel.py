@@ -112,6 +112,17 @@ PAL = {
     'fish':        (0x4A, 0x9A, 0xC8),
     'fish_hi':     (0x86, 0xC8, 0xE8),
     'fish_dark':   (0x2A, 0x66, 0x8E),
+    # 鱼 · v0.21 扩充（鳜鱼 / 湖主）
+    # 取的是现有色族的同明度档：olive 对应 potato 的暗一档偏黄绿，
+    # legend 对应 berry 的暗一档偏蓝紫。主色与河鲈(青蓝)/锦鲤(金)完全不重叠，
+    # 这样背包缩到 64px 也能一眼分出四种鱼。
+    'olive':       (0x8E, 0x7A, 0x3C),
+    'olive_hi':    (0xB6, 0xA2, 0x5A),
+    'olive_dark':  (0x5E, 0x4E, 0x22),
+    'spot':        (0x2C, 0x22, 0x10),
+    'legend':      (0x5C, 0x3A, 0x8E),
+    'legend_hi':   (0x93, 0x6A, 0xC8),
+    'legend_dark': (0x33, 0x1E, 0x55),
 }
 
 C = PAL

@@ -308,6 +308,9 @@ namespace LuminousSSS.EditorTools
             Sprite tomato = S("V2/Items/v2_item_tomato.png");
             Sprite fishBlue = S("V2/Items/v2_item_fish_blue.png");
             Sprite fishGold = S("V2/Items/v2_item_fish_gold.png");
+            // v0.21：鳜鱼 / 湖主（Tools/gen_items.py 用与上面两条相同的 fish() 画法生成）
+            Sprite fishMandarin = S("V2/Items/v2_item_fish_mandarin.png");
+            Sprite fishLegend = S("V2/Items/v2_item_fish_legend.png");
             Sprite ironOre = S("V2/Items/v2_item_iron_ore.png");
             Sprite coal = S("V2/Items/v2_item_coal.png");
             Sprite forgedSword = S("V2/Items/v2_item_sword.png");
@@ -348,6 +351,15 @@ namespace LuminousSSS.EditorTools
                 new ItemDef { id = "fish_gold", displayName = "锦鲤", kind = ItemKind.Fish,
                               icon = fishGold, buyPrice = 0, sellPrice = 130,
                               rarity = 3, weightMin = 0.5f, weightMax = 3f },
+
+                // v0.21 钓鱼内容分层：稀有度直接决定 QTE 的难度（FishingMinigame 读 rarity +
+                // 本次重量在区间里的位置），所以这两个值别随手改 —— 改完要重新过一遍手感。
+                new ItemDef { id = "fish_mandarin", displayName = "鳜鱼", kind = ItemKind.Fish,
+                              icon = fishMandarin, buyPrice = 0, sellPrice = 190,
+                              rarity = 3, weightMin = 0.8f, weightMax = 2.6f },
+                new ItemDef { id = "fish_legend", displayName = "湖主", kind = ItemKind.Fish,
+                              icon = fishLegend, buyPrice = 0, sellPrice = 620,
+                              rarity = 5, weightMin = 3.0f, weightMax = 9.5f },
 
                 // 铁匠铺材料（v0.17）
                 new ItemDef { id = "iron_ore", displayName = "铁矿", kind = ItemKind.Crop,
@@ -851,6 +863,9 @@ namespace LuminousSSS.EditorTools
             am.frenzyClip   = A<AudioClip>(AudioDir + "sfx_frenzy.wav");
             am.heatClip     = A<AudioClip>(AudioDir + "sfx_heat.wav");
             am.damageClip   = A<AudioClip>(AudioDir + "sfx_damage.wav");
+            // 钓鱼音效（v0.21）：入水水花 + 咬钩「叮」
+            am.splashClip   = A<AudioClip>(AudioDir + "sfx_splash.wav");
+            am.biteClip     = A<AudioClip>(AudioDir + "sfx_bite.wav");
             return am;
         }
 
@@ -1231,6 +1246,17 @@ namespace LuminousSSS.EditorTools
             fbox.size = new Vector2(5.2f, 1.0f);
             var fspot = fishing.GetComponent<FishingSpot>();
             fspot.bobberOffset = new Vector2(0f, 1.5f);   // 浮标落在水面内侧
+            // v0.21 权重表：重复的 id 就是权重。湖主只出现 1/8，且是 ★5 + 极难 QTE，
+            // 所以「钓到湖主」这件事同时有稀有度与操作门槛两层门槛。
+            // 这里显式写一遍（而不是只靠组件默认值）：场景是重新生成的，但万一将来有人
+            // 复制了一个旧钓鱼点进场景，序列化下来的旧 fishIds 会盖掉字段默认值。
+            fspot.fishIds = new[]
+            {
+                "fish_blue", "fish_blue", "fish_blue",
+                "fish_gold", "fish_gold",
+                "fish_mandarin", "fish_mandarin",
+                "fish_legend",
+            };
 
             // ---- v0.15 土路尽头：去村口集市
             MakePortal(props, "RoadToVillage", new Vector2(PathLeft + 1f, 0.6f), new Vector2(2.2f, 1.4f),

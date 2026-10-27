@@ -33,6 +33,10 @@ namespace LuminousSSS
         public AudioClip heatClip;      // 入炉加热
         public AudioClip damageClip;    // 锤击损伤
 
+        [Header("钓鱼音效（v0.21）")]
+        public AudioClip splashClip;    // 浮标入水 / 水花（gen_audio.py 生成）
+        public AudioClip biteClip;      // 咬钩提示音：比 confirm 更短更「叮」，要能从 BGM 里跳出来
+
         public bool MusicOn { get; private set; }
         public bool SfxOn { get; private set; }
 
@@ -162,8 +166,38 @@ namespace LuminousSSS
             PlayForge(Instance?.damageClip);
         }
 
+        // ---- 钓鱼音效（v0.21）
+
+        /// <summary>
+        /// 浮标入水 / 水花。缺 splashClip 时退回 clickClip —— 老场景（没重跑一键生成）
+        /// 至少还有一声响，不至于"抛竿完全没反馈"。
+        /// </summary>
+        public static void PlaySplash()
+        {
+            if (Instance == null) return;
+            var clip = Instance.splashClip != null ? Instance.splashClip : Instance.clickClip;
+            PlaySfx(clip);
+        }
+
+        /// <summary>
+        /// 咬钩「叮」。这是玩家判断「真咬钩 vs 假咬钩」最重要的线索（假咬钩故意不出声），
+        /// 所以缺失时退回 confirmClip —— 两个都是短促上行的提示音，语义对得上。
+        /// </summary>
+        public static void PlayBite()
+        {
+            if (Instance == null) return;
+            var clip = Instance.biteClip != null ? Instance.biteClip : Instance.confirmClip;
+            PlaySfx(clip);
+        }
+
         /// <summary>打铁音效统一出口：查开关 + 播放。</summary>
         static void PlayForge(AudioClip clip)
+        {
+            PlaySfx(clip);
+        }
+
+        /// <summary>所有音效的统一出口：开关 / 音源 / 剪辑三者任一缺失就静默跳过。</summary>
+        static void PlaySfx(AudioClip clip)
         {
             if (Instance == null || !Instance.SfxOn || Instance.sfxSource == null || clip == null) return;
             Instance.sfxSource.PlayOneShot(clip);

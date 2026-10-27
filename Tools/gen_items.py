@@ -210,4 +210,68 @@ def fish(body_key, hi_key, lo_key, fin_key):
 save(fish('fish', 'fish_hi', 'fish_dark', 'fish_dark'), 'v2_item_fish_blue')
 save(fish('gold', 'gold', 'gold_deep', 'pumpkin_dark'), 'v2_item_fish_gold')
 
+
+# ============================================================ 鱼 ×2（v0.21 内容分层）
+# 为什么沿用同一个 fish() 骨架 + 128 画布：
+#   背包格子只有 64px，「这条鱼是新的」必须靠剪影与主色区分，不能靠细节。
+#   河鲈（青蓝）/ 锦鲤（金）/ 鳜鱼（琥珀褐+鞍状斑）/ 湖主（暗紫+金鳍）四者主色互不重叠。
+#   新鱼只改配色与局部特征，描边宽度、光源方向、留白率全部和旧图标一致。
+#
+# ⚠️ 鳜鱼 / 湖主的图标**不在本脚本生成**：v0.23 已经把这两张重画到
+#   `Tools/gen_fish_icons.py`（4~5 档明暗 + 贴轮廓的斑块/腹带，与河鲈并排不跳）。
+#   本脚本只保留河鲈与锦鲤两条基准鱼。这里若再写 save(fish_mandarin()) 之类，
+#   重跑一次就会把新图覆盖回旧版 —— 想改那两条请改 gen_fish_icons.py。
+
+def _deprecated_fish_mandarin():
+    """鳜鱼（★★★）：橄榄褐身体 + 深色斑块。
+
+    斑块是鳜鱼最可辨识的特征；没有它，图标就只是「一条褐色的鱼」，
+    和河鲈摆在一起会被认成同一种的低配版。
+    """
+    im = fish('olive', 'olive_hi', 'olive_dark', 'olive_dark')
+
+    body = ell(58, 66, 42, 26) | poly([(58, 40), (64, 66), (58, 92)])
+    # 斑块只画在身体内部（& body），否则会糊到 2px 描边外面，看起来像脏点
+    for cx, cy, rx, ry in ((44, 58, 8, 6), (62, 76, 10, 6), (74, 60, 6, 5), (36, 74, 7, 5)):
+        paint_mask(im, ell(cx, cy, rx, ry) & body, rgba('spot'))
+
+    # 眼睛重画一次：斑块可能盖到眼周，眼睛被吃掉就整条鱼没精神
+    paint_mask(im, ell(90, 58, 9, 9), rgba('white'))
+    paint_mask(im, ell(92, 58, 5, 5), rgba('coal'))
+    paint_mask(im, ell(93, 56, 2, 2), rgba('white'))
+    return im
+
+
+def _deprecated_fish_legend():
+    """湖主（★★★★★）：比其它三条大一圈的暗紫身影 + 金色鳍。
+
+    体量本身就是「这条不一样」的信号：图标缩到 64px 时，
+    只有「占的画布比例」和「有没有金色点缀」还能被读出来。
+    """
+    im = new_canvas(S, S)
+
+    body = ell(62, 64, 50, 31) | poly([(62, 36), (68, 64), (62, 92)])
+    tail = poly([(14, 64), (0, 32), (34, 64), (0, 96)])
+    fin_top = poly([(46, 36), (58, 14), (72, 26), (78, 38)])
+    fin_belly = poly([(52, 92), (64, 110), (78, 92)])
+
+    paint_mask(im, dilate(body | tail | fin_top | fin_belly, 2), rgba('outline'))
+
+    paint_mask(im, tail, rgba('gold_dark'))
+    paint_mask(im, fin_belly, rgba('gold_dark'))
+    paint_mask(im, body, rgba('legend'))
+    # 明暗：沿用家族规则（光源左上 45°，上缘亮、下缘暗）
+    paint_mask(im, body & ell(56, 52, 36, 13), rgba('legend_hi'))
+    paint_mask(im, body & ell(70, 82, 36, 11), rgba('legend_dark'))
+    paint_mask(im, fin_top, rgba('gold'))
+
+    paint_mask(im, ell(100, 54, 10, 10), rgba('white'))
+    paint_mask(im, ell(102, 54, 5, 5), rgba('coal'))
+    paint_mask(im, ell(103, 52, 2, 2), rgba('white'))
+    return im
+
+
+# v0.23 起这两个 save 已移除：图标改由 Tools/gen_fish_icons.py 生成，避免重跑互相覆盖。
+# 两个函数改名 _deprecated_ 前缀后仍保留（不删），是给「想对比旧配色」时留的参照。
+
 print('\n完成（道具 %d 个）' % len([f for f in os.listdir(OUT) if f.endswith('.png')]))
