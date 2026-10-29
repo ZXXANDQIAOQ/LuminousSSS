@@ -57,12 +57,22 @@ namespace LuminousSSS
         Button _collectBtn;
         RectTransform _relicContent;
 
+        // ---- 打铁舞台（v0.20：像素精灵可视化）----
+        Image _furnaceImg;
+        Image _flameImg;
+        Image _anvilImg;
+        Image _swordImg;
+        Image _hammerImg;
+        Coroutine _hammerCo, _flameCo;
+
         // ------------------------------------------------------------ 对外入口
 
         public static void Open(BlacksmithSpot spot)
         {
             if (ShopPanel.IsOpen) ShopPanel.Close();
             if (BackpackPanel.IsOpen) BackpackPanel.Close();
+
+            ForgeFxLoader.EnsureLoaded();   // v0.20：自动加载像素精灵 + 补挂 AudioManager clip
 
             _currentSpot = spot;
             if (_inst == null)
@@ -85,6 +95,180 @@ namespace LuminousSSS
             _inst._root.SetActive(false);
             _inst.ClearStage();
             UiModal.Apply();
+        }
+
+        // ================================================================
+        // 打铁舞台（v0.20）：像素精灵场景
+        // 左侧熔炉（火焰循环）+ 中央铁砧（剑坯随加热变色）+ 上方锤子（三帧挥击）
+        // ================================================================
+
+        const float StageScale = 2.5f;   // 像素放大倍数（保持硬边）
+
+        void BuildStage(RectTransform panelPt)
+        {
+            // 舞台底板（暗暖色，像铁匠铺墙角）
+            var stageGo = new GameObject("Stage", typeof(RectTransform), typeof(Image));
+            stageGo.transform.SetParent(panelPt, false);
+            var stageRt = stageGo.GetComponent<RectTransform>();
+            UiFactory.Place(stageRt, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                new Vector2(900f, 220f), new Vector2(0f, -90f));
+            var stageImg = stageGo.GetComponent<Image>();
+            stageImg.color = new Color(0.18f, 0.12f, 0.08f, 0.9f);
+            stageImg.raycastTarget = false;
+
+            // 地面线
+            var ground = new GameObject("Ground", typeof(RectTransform), typeof(Image));
+            ground.transform.SetParent(stageRt, false);
+            var gRt = ground.GetComponent<RectTransform>();
+            UiFactory.Place(gRt, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(860f, 4f), new Vector2(0f, 20f));
+            ground.GetComponent<Image>().color = new Color(0.3f, 0.22f, 0.15f, 1f);
+
+            // ---- 熔炉（左侧）----
+            _furnaceImg = MakeStageSprite(stageRt, "Furnace",
+                ForgeFxLoader.Furnace,
+                new Vector2(80 * 2f, 60 * 2f),          // 160x120
+                new Vector2(-320f, 30f));                // 舞台内偏左
+
+            // 火焰（叠在炉口位置）
+            _flameImg = MakeStageSprite(stageRt, "Flame",
+                ForgeFxLoader.FlameFrames != null && ForgeFxLoader.FlameFrames.Length > 0
+                    ? ForgeFxLoader.FlameFrames[0] : null,
+                new Vector2(20 * 2f, 28 * 2f),          // 40x56
+                new Vector2(-320f, -10f));               // 炉口位置
+
+            // ---- 铁砧（中央）----
+            _anvilImg = MakeStageSprite(stageRt, "Anvil",
+                ForgeFxLoader.Anvil,
+                new Vector2(64 * StageScale, 48 * StageScale),   // 160x120
+                new Vector2(60f, 10f));
+
+            // ---- 剑坯（放在砧面上）----
+            _swordImg = MakeStageSprite(stageRt, "Sword",
+                ForgeFxLoader.SwordCold,
+                new Vector2(56 * StageScale, 12 * StageScale),   // 140x30
+                new Vector2(60f, 55f));                            // 砧面高度
+
+            // ---- 锤子（铁砧上方，默认举高姿态）----
+            _hammerImg = MakeStageSprite(stageRt, "Hammer",
+                ForgeFxLoader.HammerFrames != null && ForgeFxLoader.HammerFrames.Length > 0
+                    ? ForgeFxLoader.HammerFrames[0] : null,
+                new Vector2(32 * StageScale, 32 * StageScale),   // 80x80
+                new Vector2(120f, 130f));                          // 砧面上方
+
+            // 启动火焰循环
+            if (ForgeFxLoader.FlameFrames != null && ForgeFxLoader.FlameFrames.Length > 0)
+                _flameCo = StartCoroutine(FlameLoopRoutine());
+        }
+
+        Image MakeStageSprite(RectTransform parent, string name, Sprite sprite, Vector2 size, Vector2 pos)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Image));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            UiFactory.Place(rt, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), size, pos);
+            var img = go.GetComponent<Image>();
+            img.sprite = sprite;
+            img.raycastTarget = false;
+            img.pixelsPerUnit = 1f;
+            return img;
+        }
+
+        IEnumerator FlameLoopRoutine()
+        {
+            int i = 0;
+            while (true)
+            {
+                if (_flameImg != null && ForgeFxLoader.FlameFrames != null
+                    && i < ForgeFxLoader.FlameFrames.Length)
+                {
+                    _flameImg.sprite = ForgeFxLoader.FlameFrames[i];
+                }
+                i = (i + 1) % 4;
+                yield return new WaitForSeconds(0.15f);
+            }
+        }
+
+        /// <summary>根据当前锤击次数切换剑坯加热颜色。</summary>
+        void UpdateSwordHeatVisual(int hitCount, bool broken)
+        {
+            if (_swordImg == null) return;
+            if (broken)
+            {
+                _swordImg.sprite = ForgeFxLoader.SwordBroken;
+                return;
+            }
+            if (hitCount <= 0) _swordImg.sprite = ForgeFxLoader.SwordCold;
+            else if (hitCount <= 3) _swordImg.sprite = ForgeFxLoader.SwordHot1;
+            else if (hitCount <= 6) _swordImg.sprite = ForgeFxLoader.SwordHot2;
+            else _swordImg.sprite = ForgeFxLoader.SwordHot3;
+        }
+
+        /// <summary>播放一次锤子挥击动画（举高→下挥→命中→回位）。</summary>
+        void PlayHammerAnim()
+        {
+            if (_hammerImg == null || ForgeFxLoader.HammerFrames == null
+                || ForgeFxLoader.HammerFrames.Length < 3) return;
+            if (_hammerCo != null) StopCoroutine(_hammerCo);
+            _hammerCo = StartCoroutine(HammerAnimRoutine());
+        }
+
+        IEnumerator HammerAnimRoutine()
+        {
+            // f1: 举高
+            _hammerImg.sprite = ForgeFxLoader.HammerFrames[0];
+            yield return new WaitForSecondsRealtime(0.05f);
+            // f2: 下挥
+            _hammerImg.sprite = ForgeFxLoader.HammerFrames[1];
+            yield return new WaitForSecondsRealtime(0.05f);
+            // f3: 命中（压下）
+            _hammerImg.sprite = ForgeFxLoader.HammerFrames[2];
+            // 命中瞬间在砧面位置爆火花（用像素精灵替换原来的方块）
+            PixelSparks(new Color(1f, 0.85f, 0.4f), 8);
+            yield return new WaitForSecondsRealtime(0.08f);
+            // 回位
+            _hammerImg.sprite = ForgeFxLoader.HammerFrames[0];
+        }
+
+        /// <summary>像素星火花（替换原 UGUI 方块粒子）。</summary>
+        void PixelSparks(Color color, int count = 8)
+        {
+            if (ForgeFxLoader.Spark == null || _root == null) { Sparks(color, count); return; }
+            var canvasRt = _root.transform.parent;
+            // 火花出生点：铁砧中央偏上（舞台在面板内偏移约 (60,55) + 舞台锚点）
+            Vector2 origin = _panelBasePos + new Vector2(60f, 55f);
+            for (int i = 0; i < count; i++)
+            {
+                var spark = new GameObject("PxSpark", typeof(RectTransform), typeof(Image));
+                spark.transform.SetParent(canvasRt, false);
+                var img = spark.GetComponent<Image>();
+                img.sprite = ForgeFxLoader.Spark;
+                img.color = color;
+                img.raycastTarget = false;
+                var rt = spark.GetComponent<RectTransform>();
+                float s = Random.Range(8f, 16f);
+                rt.sizeDelta = new Vector2(s, s);
+                rt.anchoredPosition = origin + new Vector2(Random.Range(-20f, 20f), Random.Range(0f, 20f));
+                Vector2 vel = new Vector2(Random.Range(-180f, 180f), Random.Range(80f, 260f));
+                StartCoroutine(PixelSparkRoutine(rt, img, vel));
+            }
+        }
+
+        IEnumerator PixelSparkRoutine(RectTransform rt, Image img, Vector2 vel)
+        {
+            float t = 0f, dur = Random.Range(0.3f, 0.55f);
+            Color c = img.color;
+            Vector2 pos = rt.anchoredPosition;
+            while (t < dur)
+            {
+                t += Time.unscaledDeltaTime;
+                img.color = new Color(c.r, c.g, c.b, c.a * (1f - t / dur));
+                vel += Vector2.down * 600f * Time.unscaledDeltaTime;
+                pos += vel * Time.unscaledDeltaTime;
+                rt.anchoredPosition = pos;
+                yield return null;
+            }
+            Destroy(rt.gameObject);
         }
 
         // ------------------------------------------------------------ 构建
@@ -138,8 +322,11 @@ namespace LuminousSSS
             UiFactory.Place(closeRt, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f),
                 new Vector2(60f, 60f), new Vector2(-10f, 0f));
 
+            // ---- 打铁舞台（v0.20：像素精灵可视化）----
+            BuildStage(pt);
+
             // ---- 价值区
-            float y = -100f;
+            float y = -320f;
             _valueText = UiFactory.MakeText(pt, "剑价值：100", 38, TextAnchor.MiddleLeft,
                 new Color32(255, 220, 120, 255));
             UiFactory.Place(_valueText.rectTransform, new Vector2(0f, 1f), new Vector2(0f, 1f),
@@ -310,6 +497,7 @@ namespace LuminousSSS
             _session.OnBroken += () =>
             {
                 _statusText.text = "剑碎了！价值归零...";
+                UpdateSwordHeatVisual(0, broken: true);   // v0.20：剑变断剑
                 StrikeFx(FxKind.Break, 16);
                 AudioManager.Break();
                 Refresh();
@@ -365,6 +553,7 @@ namespace LuminousSSS
             _session.StartForge();
             _session.FinishHeating();   // 简化：跳过加热等待，直接可锤
             _statusText.text = "锤击开始！见好就收还是再敲一锤？";
+            UpdateSwordHeatVisual(0, broken: false);   // v0.20：新剑冷灰
             AudioManager.Heat();   // v0.19：入炉火焰音效
 
             // v0.20：铁匠真的敲一下点炉 —— 火星四溅 + 余烬上飘
@@ -462,6 +651,10 @@ namespace LuminousSSS
                 _ => ""
             };
             _statusText.text = msg;
+
+            // v0.20：锤子挥击动画 + 剑随锤次加热变色
+            PlayHammerAnim();
+            UpdateSwordHeatVisual(_session.HitCount, broken: false);
 
             // v0.19：按锤击结果播放特效 + 音效（ForgeTax 风格反馈）
             // 按锤击结果播放特效 + 音效
